@@ -1,0 +1,85 @@
+{
+    "extensions": {
+        "development": [
+            ".sln", ".csproj", ".py", ".java", ".js", ".ts", ".html", ".css",
+            ".php", ".rb", ".go", ".rs", ".cpp", ".h", ".cs", ".vb", ".gitignore"
+        ],
+        "images": [
+            ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tiff", ".svg"
+        ],
+        "videos": [
+            ".mp4", ".avi", ".mov", ".wmv", ".flv", ".mkv"
+        ],
+        "documents": [
+            ".txt", ".doc", ".docx", ".pdf", ".xls", ".xlsx", ".ppt", ".pptx", ".accdb", ".ldf", ".mdf"
+        ]
+    },
+    "categories": {
+        "School": {
+            "include": ["homework", "college", "mt*sac", "school", "roynon", "cedargrove"],
+            "exclude": []
+        },
+        "Work": {
+            "include": ["resume", "employee", "business", "cover*letter", "career", "safeway", "vons", "american*career*college", "ufcw", "time*punches", "time*records", "paycheck"],
+            "exclude": []
+        },
+        "Soccer": {
+            "include": ["soccer", "spring*select"],
+            "exclude": []
+        },
+        "Scouts": {
+            "include": ["cub*scouts", "boy*scouts", "troop"],
+            "exclude": ["trooper"]
+        },
+        "Games": {
+            "include": ["minecraft","battle.net", "warhammer", "dynasty*warriors", "zelda", "diablo","breath*of*fire", "game*shark", "grand*theft*auto", "pokemon", "7th*saga", "secret*of*mana", "poke", "legend*of*dragoon"],
+            "exclude": []
+        }
+    },
+    "familyMembers": {
+        "02 - Michael": {
+            "include": ["michael", "mike", "mpalmer"],
+            "exclude": []
+        },
+        "03 - Jenna": {
+            "include": ["jenna", "jloiacano"],
+            "exclude": []
+        },
+        "04 - Mikey": {
+            "include": ["mikey"],
+            "exclude": []
+        },
+        "05 - Brianna": {
+            "include": ["brianna"],
+            "exclude": []
+        },
+        "06 - Brayden": {
+            "include": ["brayden"],
+            "exclude": []
+        },
+        "07 - Bryce": { 
+            "include": ["bryce"],
+            "exclude": []
+        },
+        "08 - Brandon": {
+            "include": ["brandon"],
+            "exclude": []
+        },
+        "09 - Alex": {
+            "include": ["alex", "alexander"],
+            "exclude": ["alex7", "Alexiyies", "alex jackson", "alexander larsson"]
+        },
+        "10 - Matthew": { 
+            "include": ["matthew"],
+            "exclude": []
+        },
+        "11 - Logan": {
+            "include": ["logan"],
+            "exclude": []
+        },
+        "12 - Connor": { 
+            "include": ["connor"],
+            "exclude": []
+        }
+    }
+}
