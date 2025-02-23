@@ -1,3 +1,4 @@
+[CmdletBinding()]
 param(
     [string]$SourceDirectory = "D:\Apps\Microsoft\OneDrive\Documents\Personal\Organized",
     [string]$TargetDirectory = "D:\Apps\Microsoft\OneDrive\Documents\Personal\Organized"
@@ -137,6 +138,13 @@ function Add-ToFileCollection {
 function Initialize-FileInfo {
     param([string]$path, [bool]$isDirectory)
     
+    # Skip only Development\Projects folder
+    $projectsFolder = Join-Path $TargetDirectory "Development\Projects"
+    if ($path.StartsWith($projectsFolder)) {
+        Write-Verbose "Skipping projects folder: $path"
+        return
+    }
+    
     $fileInfo = [FileOrganizationInfo]::new($path, $isDirectory)
     
     if ($isDirectory) {
@@ -254,11 +262,20 @@ $script:fileCollection = @()
 # Main processing logic
 Write-Host "`nScanning files...`n" -ForegroundColor Blue
 
-$totalItems = (Get-ChildItem -Path $SourceDirectory -Recurse).Count
+$projectsFolder = Join-Path $TargetDirectory "Development\Projects"
+$totalItems = (Get-ChildItem -Path $SourceDirectory -Recurse | 
+    Where-Object { 
+        $path = $_.FullName
+        !$path.StartsWith($projectsFolder)
+    }).Count
 $processed = 0
 
 # First pass: Scan and analyze all files
-Get-ChildItem -Path $SourceDirectory -Recurse | ForEach-Object {
+Get-ChildItem -Path $SourceDirectory -Recurse | 
+    Where-Object { 
+        $path = $_.FullName
+        !$path.StartsWith($projectsFolder)
+    } | ForEach-Object {
     $processed++
     $progressPercentage = [Math]::Min(100, [Math]::Floor(($processed / $totalItems) * 100))
     Write-Progress -Activity "Scanning Files" -Status "Analyzing: $($_.Name)" -PercentComplete $progressPercentage
