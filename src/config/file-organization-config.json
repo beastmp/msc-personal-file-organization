@@ -8,10 +8,10 @@
             ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tiff", ".svg"
         ],
         "videos": [
-            ".mp4", ".avi", ".mov", ".wmv", ".flv", ".mkv"
+            ".mp4", ".avi", ".mov", ".wmv", ".flv", ".mkv", ".bup", ".iso", ".ifo", ".vob", ".miniso"
         ],
         "documents": [
-            ".txt", ".doc", ".docx", ".pdf", ".xls", ".xlsx", ".ppt", ".pptx", ".accdb", ".ldf", ".mdf"
+            ".txt", ".doc", ".docx", ".pdf", ".xls", ".xlsx", ".ppt", ".pptx", ".accdb", ".ldf", ".mdf", ".xml", ".one", ".csv", ".htm", ".log", ".msg", ".tax2018"
         ]
     },
     "categories": {
@@ -20,7 +20,7 @@
             "exclude": []
         },
         "Work": {
-            "include": ["resume", "employee", "business", "cover*letter", "career", "safeway", "vons", "american*career*college", "ufcw", "time*punches", "time*records", "paycheck"],
+            "include": ["resume", "employee", "business", "cover*letter", "career", "safeway", "vons", "american*career*college", "ufcw", "time*punches", "time*records", "timesheet", "paycheck"],
             "exclude": []
         },
         "Soccer": {
@@ -34,11 +34,15 @@
         "Games": {
             "include": ["minecraft","battle.net", "warhammer", "dynasty*warriors", "zelda", "diablo","breath*of*fire", "game*shark", "grand*theft*auto", "pokemon", "7th*saga", "secret*of*mana", "poke", "legend*of*dragoon"],
             "exclude": []
+        },
+        "Taxes": {
+            "include": ["taxes","tax*return", "turbotax"],
+            "exclude": []
         }
-    },
+},
     "familyMembers": {
         "02 - Michael": {
-            "include": ["michael", "mike", "mpalmer"],
+            "include": ["michael", "mike", "mpalmer", "beastmp"],
             "exclude": []
         },
         "03 - Jenna": {
@@ -46,7 +50,7 @@
             "exclude": []
         },
         "04 - Mikey": {
-            "include": ["mikey"],
+            "include": ["mikey","sms-*.xml","calls-*.xml"],
             "exclude": []
         },
         "05 - Brianna": {
