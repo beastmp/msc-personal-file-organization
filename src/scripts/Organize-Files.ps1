@@ -16,6 +16,10 @@ class FileOrganizationInfo {
     [string]$RelativePath  # For development projects
     [string]$ColorCode  # Add color code property
     [bool]$ProcessedAsProject  # Add new flag
+    [string[]]$DetectedFamilyMembers
+    [string[]]$DetectedCategories
+    [hashtable]$Metadata
+    [bool]$UserSelected
     
     FileOrganizationInfo([string]$sourcePath, [bool]$isDirectory) {
         $this.SourcePath = $sourcePath
@@ -23,6 +27,10 @@ class FileOrganizationInfo {
         $this.FileType = if ($isDirectory) { "Directory" } else { [System.IO.Path]::GetExtension($sourcePath).ToLower() }
         $this.ColorCode = 'White'  # Default color
         $this.ProcessedAsProject = $false
+        $this.DetectedFamilyMembers = @()
+        $this.DetectedCategories = @()
+        $this.Metadata = @{}
+        $this.UserSelected = $false
     }
 }
 
@@ -325,22 +333,34 @@ function Initialize-FileInfo {
     elseif ($documentExtensions -contains $extension) {
         $fileName = Split-Path $path -Leaf
         $metadata = Get-FileMetadata -path $path
-        $familyMember = Get-FamilyMember -fileName $fileName -metadata $metadata
-        $category = Get-DocumentCategory -fileName $fileName -metadata $metadata
+        $fileInfo.Metadata = $metadata
         
-        if ($familyMember -eq "01 - Family" -or $category -eq "General") {
-            try {
-                $content = Get-Content -Path $path -Raw
-                if ($familyMember -eq "01 - Family") {
-                    $familyMember = Get-FamilyMember -fileName $fileName -content $content -metadata $metadata
-                }
-                if ($category -eq "General") {
-                    $category = Get-DocumentCategory -fileName $fileName -content $content -metadata $metadata
-                }
-            }
-            catch {
-                Write-Warning "Could not read content of file: $fileName"
-            }
+        try {
+            $content = Get-Content -Path $path -Raw
+        }
+        catch {
+            Write-Warning "Could not read content of file: $fileName"
+            $content = ""
+        }
+        
+        $detectedFamilyMembers = Get-AllPossibleFamilyMembers -fileName $fileName -content $content -metadata $metadata
+        $detectedCategories = Get-AllPossibleCategories -fileName $fileName -content $content -metadata $metadata
+        
+        $fileInfo.DetectedFamilyMembers = $detectedFamilyMembers
+        $fileInfo.DetectedCategories = $detectedCategories
+        
+        $familyMember = if ($detectedFamilyMembers.Count -gt 0) {
+            $fileInfo.UserSelected = $true
+            Get-UserSelection -prompt "Select family member for $fileName" -options $detectedFamilyMembers -default "01 - Family"
+        } else {
+            "01 - Family"
+        }
+        
+        $category = if ($detectedCategories.Count -gt 0) {
+            $fileInfo.UserSelected = $true
+            Get-UserSelection -prompt "Select category for $fileName" -options $detectedCategories -default "General"
+        } else {
+            "General"
         }
         
         $targetPath = Join-Path $TargetDirectory "Documents\${familyMember}\${category}\${fileName}"
@@ -350,6 +370,131 @@ function Initialize-FileInfo {
         $targetPath = Join-Path $TargetDirectory "Unknown\$(Split-Path $path -Leaf)"
         Add-ToFileCollection -fileInfo $fileInfo -category "Unknown" -targetPath $targetPath -colorCode 'Red'
     }
+}
+
+function Get-AllPossibleFamilyMembers {
+    param(
+        [string]$fileName,
+        [string]$content = "",
+        [hashtable]$metadata = $null
+    )
+    
+    $matches = @()
+    
+    # Check metadata
+    if ($metadata) {
+        if (![string]::IsNullOrWhiteSpace($metadata.Author)) {
+            $matches += $familyKeywords.Keys | Where-Object {
+                Test-ContentMatch -content $metadata.Author -includePatterns $familyKeywords[$_].Include -excludePatterns $familyKeywords[$_].Exclude
+            }
+        }
+        
+        $metaContent = @($metadata.Title, $metadata.Subject, $metadata.Comments, $metadata.Tags) -join " "
+        if (![string]::IsNullOrWhiteSpace($metaContent)) {
+            $matches += $familyKeywords.Keys | Where-Object {
+                Test-ContentMatch -content $metaContent -includePatterns $familyKeywords[$_].Include -excludePatterns $familyKeywords[$_].Exclude
+            }
+        }
+    }
+    
+    # Check filename
+    $matches += $familyKeywords.Keys | Where-Object {
+        Test-ContentMatch -content $fileName -includePatterns $familyKeywords[$_].Include -excludePatterns $familyKeywords[$_].Exclude
+    }
+    
+    # Check content
+    if ($content) {
+        $matches += $familyKeywords.Keys | Where-Object {
+            Test-ContentMatch -content $content -includePatterns $familyKeywords[$_].Include -excludePatterns $familyKeywords[$_].Exclude
+        }
+    }
+    
+    return $matches | Select-Object -Unique
+}
+
+function Get-AllPossibleCategories {
+    param(
+        [string]$fileName,
+        [string]$content = "",
+        [hashtable]$metadata = $null
+    )
+    
+    $matches = @()
+    
+    # Check metadata
+    if ($metadata) {
+        $categoryContent = @(
+            $metadata.Category,
+            $metadata.ContentType,
+            $metadata.Project,
+            $metadata.Company,
+            $metadata.Program
+        ) | Where-Object { ![string]::IsNullOrWhiteSpace($_) }
+        
+        if ($categoryContent.Count -gt 0) {
+            $categoryText = $categoryContent -join " "
+            $matches += $categoryKeywords.Keys | Where-Object {
+                Test-ContentMatch -content $categoryText -includePatterns $categoryKeywords[$_].Include -excludePatterns $categoryKeywords[$_].Exclude
+            }
+        }
+        
+        $generalContent = @(
+            $metadata.Keywords,
+            $metadata.Subject,
+            $metadata.Title,
+            $metadata.Comments,
+            $metadata.Tags,
+            $metadata.FileDescription
+        ) | Where-Object { ![string]::IsNullOrWhiteSpace($_) }
+        
+        if ($generalContent.Count -gt 0) {
+            $metaText = $generalContent -join " "
+            $matches += $categoryKeywords.Keys | Where-Object {
+                Test-ContentMatch -content $metaText -includePatterns $categoryKeywords[$_].Include -excludePatterns $categoryKeywords[$_].Exclude
+            }
+        }
+    }
+    
+    # Check filename and content
+    $matches += $categoryKeywords.Keys | Where-Object {
+        Test-ContentMatch -content $fileName -includePatterns $categoryKeywords[$_].Include -excludePatterns $categoryKeywords[$_].Exclude
+    }
+    
+    if ($content) {
+        $matches += $categoryKeywords.Keys | Where-Object {
+            Test-ContentMatch -content $content -includePatterns $categoryKeywords[$_].Include -excludePatterns $categoryKeywords[$_].Exclude
+        }
+    }
+    
+    return $matches | Select-Object -Unique
+}
+
+function Get-UserSelection {
+    param(
+        [string]$prompt,
+        [string[]]$options,
+        [string]$default
+    )
+    
+    if ($options.Count -eq 0) { return $default }
+    if ($options.Count -eq 1) { return $options[0] }
+    
+    Write-Host "`n$prompt"
+    for ($i = 0; $i -lt $options.Count; $i++) {
+        Write-Host "$($i + 1): $($options[$i])"
+    }
+    Write-Host "D: Use default ($default)"
+    
+    do {
+        $response = Read-Host "Select option (1-$($options.Count) or D)"
+        if ($response -eq "D") { return $default }
+        if ($response -match '^\d+$') {
+            $index = [int]$response - 1
+            if ($index -ge 0 -and $index -lt $options.Count) {
+                return $options[$index]
+            }
+        }
+    } while ($true)
 }
 
 # Initialize counters
@@ -494,5 +639,14 @@ foreach ($member in $fileCount.Documents.ByFamily.Keys | Sort-Object) {
         Write-Host "  - $category`: $($script:fileCount.Documents.ByFamily[$member][$category])" -ForegroundColor Yellow
     }
 }
+
+$jsonPath = Join-Path $PSScriptRoot "..\output\file-organization-results.json"
+$jsonDir = Split-Path $jsonPath -Parent
+if (!(Test-Path $jsonDir)) {
+    New-Item -ItemType Directory -Path $jsonDir -Force | Out-Null
+}
+
+$fileCollection | ConvertTo-Json -Depth 10 | Set-Content $jsonPath
+Write-Host "`nFile organization details exported to: $jsonPath" -ForegroundColor Blue
 
 Write-Host "`nFile organization complete!" -ForegroundColor Blue
