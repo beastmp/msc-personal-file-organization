@@ -2,7 +2,7 @@
     "extensions": {
         "development": [
             ".sln", ".csproj", ".py", ".java", ".js", ".ts", ".html", ".css",
-            ".php", ".rb", ".go", ".rs", ".cpp", ".h", ".cs", ".vb", ".gitignore"
+            ".php", ".rb", ".go", ".rs", ".cpp", ".h", ".cs", ".vb", ".gitignore",".json",".ps1",".sql"
         ],
         "images": [
             ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tiff", ".svg"
@@ -32,11 +32,12 @@
             "exclude": ["trooper"]
         },
         "Games": {
-            "include": ["minecraft","battle.net", "warhammer", "dynasty*warriors", "zelda", "diablo","breath*of*fire", "game*shark", "grand*theft*auto", "pokemon", "7th*saga", "secret*of*mana", "poke", "legend*of*dragoon"],
+            "include": ["minecraft","battle.net", "warhammer*fantasy", "dynasty*warriors", "zelda", "diablo","breath*of*fire", "game*shark",
+                        "grand*theft*auto", "pokemon", "7th*saga", "secret*of*mana", "poke", "legend*of*dragoon","super*mario","tales*phantasia"],
             "exclude": []
         },
         "Taxes": {
-            "include": ["taxes","tax*return", "turbotax"],
+            "include": ["taxes","tax*return", "turbotax","taxreturn"],
             "exclude": []
         }
 },

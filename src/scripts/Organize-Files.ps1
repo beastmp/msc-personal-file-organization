@@ -3,31 +3,27 @@ param(
     [string]$TargetDirectory = "D:\Apps\Microsoft\OneDrive\Documents\Personal\Organized"
 )
 
-# Initialize counters
-$script:fileCount = @{
-    Development = @{ Projects = 0; Standalone = 0 }
-    Media = @{ Images = 0; Videos = 0 }
-    Documents = @{ ByFamily = @{} }
-    Unknown = 0
+# File organization class
+class FileOrganizationInfo {
+    [string]$SourcePath
+    [string]$TargetPath
+    [string]$Category
+    [string]$SubCategory
+    [string]$FamilyMember
+    [bool]$IsDirectory
+    [string]$FileType
+    [string]$RelativePath  # For development projects
+    [string]$ColorCode  # Add color code property
+    [bool]$ProcessedAsProject  # Add new flag
+    
+    FileOrganizationInfo([string]$sourcePath, [bool]$isDirectory) {
+        $this.SourcePath = $sourcePath
+        $this.IsDirectory = $isDirectory
+        $this.FileType = if ($isDirectory) { "Directory" } else { [System.IO.Path]::GetExtension($sourcePath).ToLower() }
+        $this.ColorCode = 'White'  # Default color
+        $this.ProcessedAsProject = $false
+    }
 }
-
-# Load configuration
-$configPath = Join-Path $PSScriptRoot "..\config\file-organization-config.json"
-$config = Get-Content -Raw -Path $configPath | ConvertFrom-Json
-
-# Convert configuration to PowerShell objects
-$developmentExtensions = $config.extensions.development
-$imageExtensions = $config.extensions.images
-$videoExtensions = $config.extensions.videos
-$documentExtensions = $config.extensions.documents
-
-# Convert categories to hashtable
-$categoryKeywords = @{}
-$config.categories.PSObject.Properties | ForEach-Object {$categoryKeywords[$_.Name] = @{Include = $_.Value.include;Exclude = $_.Value.exclude}}
-
-# Convert family members to hashtable
-$familyKeywords = @{}
-$config.familyMembers.PSObject.Properties | ForEach-Object {$familyKeywords[$_.Name] = @{Include = $_.Value.include;Exclude = $_.Value.exclude}}
 
 function Convert-WildcardToRegex {param([string]$pattern) return [regex]::Escape($pattern).Replace("\*", "[\s\w-]+")}
 
@@ -37,17 +33,53 @@ function Test-ContentMatch {param([string]$content,[string[]]$includePatterns,[s
     return $false
 }
 
-function Test-IsDevelopmentProject {param([string]$path)
-    $projectIndicators = @('package.json','.sln','.csproj','.vbproj','.gitignore','pom.xml','build.gradle','.project','Makefile','docker-compose.yml')
-    foreach ($indicator in $projectIndicators) {if (Test-Path (Join-Path $path $indicator)) {return $true}}
-    if ((Test-Path (Join-Path $path ".vs")) -or (Test-Path (Join-Path $path ".git"))) {return $true}
-    $devFileCount = (Get-ChildItem -Path $path -File -Recurse | Where-Object { $developmentExtensions -contains $_.Extension }).Count
-    return ($devFileCount -gt 1) -and (Get-ChildItem -Path $path -Directory).Count -gt 0
+function Test-IsDevelopmentProject {
+    param([string]$path)
+    
+    # Standard project indicators
+    $projectIndicators = @(
+        'package.json','.sln','.csproj','.vbproj','.gitignore',
+        'pom.xml','build.gradle','.project','Makefile',
+        'docker-compose.yml','requirements.txt','setup.py'
+    )
+    
+    # Special directories that indicate a project
+    $projectDirs = @(
+        '.vs','.git','__pycache__','node_modules',
+        'bin','obj','build','dist','target'
+    )
+    
+    # Check project files
+    foreach ($indicator in $projectIndicators) {
+        if (Test-Path (Join-Path $path $indicator)) {
+            return $true
+        }
+    }
+    
+    # Check special directories
+    foreach ($dir in $projectDirs) {
+        if (Test-Path (Join-Path $path $dir)) {
+            return $true
+        }
+    }
+    
+    # Count files by extension to detect multi-file projects
+    $files = Get-ChildItem -Path $path -File -Recurse
+    $extensionGroups = $files | Group-Object Extension
+    
+    # If we have multiple files of the same type, likely a project
+    foreach ($group in $extensionGroups) {
+        if ($developmentExtensions -contains $group.Name -and $group.Count -gt 1) {
+            return $true
+        }
+    }
+    
+    return $false
 }
 
 function Test-IsStandaloneDevelopmentFile {param([string]$path) $extension = [System.IO.Path]::GetExtension($path).ToLower();return $developmentExtensions -contains $extension}
 
-function Move-Item-Safe {param([string]$Path,[string]$Destination)
+function Move-ItemSafe {param([string]$Path,[string]$Destination)
     $fileName = Split-Path $Destination -Leaf
     $targetDir = Split-Path $Destination -Parent
     $baseName = [System.IO.Path]::GetFileNameWithoutExtension($fileName)
@@ -56,11 +88,10 @@ function Move-Item-Safe {param([string]$Path,[string]$Destination)
     if (Test-Path $Destination) {
         $sourceHash = (Get-FileHash -Path $Path).Hash
         $destHash = (Get-FileHash -Path $Destination).Hash
-        if ($sourceHash -eq $destHash) {Write-Verbose "Skipping identical file: $fileName";return $Destination}
+        if ($sourceHash -eq $destHash) {Write-Verbose "Skipping identical file: $fileName";return}
         while (Test-Path $Destination) {$Destination = Join-Path $targetDir "${baseName}_${counter}${extension}";$counter++}
     }
     Move-Item -Path $Path -Destination $Destination -Force
-    return $Destination
 }
 
 function Get-FamilyMember {param([string]$fileName,[string]$content = "")
@@ -84,29 +115,6 @@ function Get-DocumentCategory {param([string]$fileName,[string]$content = "")
     }
     return "General"
 }
-
-# File organization class
-class FileOrganizationInfo {
-    [string]$SourcePath
-    [string]$TargetPath
-    [string]$Category
-    [string]$SubCategory
-    [string]$FamilyMember
-    [bool]$IsDirectory
-    [string]$FileType
-    [string]$RelativePath  # For development projects
-    [string]$ColorCode  # Add color code property
-    
-    FileOrganizationInfo([string]$sourcePath, [bool]$isDirectory) {
-        $this.SourcePath = $sourcePath
-        $this.IsDirectory = $isDirectory
-        $this.FileType = if ($isDirectory) { "Directory" } else { [System.IO.Path]::GetExtension($sourcePath).ToLower() }
-        $this.ColorCode = 'White'  # Default color
-    }
-}
-
-# Initialize file collection
-$script:fileCollection = @()
 
 function Add-ToFileCollection {
     param(
@@ -136,13 +144,31 @@ function Initialize-FileInfo {
             $relativePath = $path
             if ($path.StartsWith($SourceDirectory)) {
                 $relativePath = $path.Substring($SourceDirectory.Length).TrimStart('\')
+                
+                # Remove existing Development\Projects from the path if it exists
+                if ($relativePath -match '^Development\\Projects\\(.+)$') {
+                    $relativePath = $matches[1]
+                }
             }
+            
             $targetPath = Join-Path $TargetDirectory "Development\Projects\$relativePath"
             Add-ToFileCollection -fileInfo $fileInfo -category "Development" -subCategory "Project" -targetPath $targetPath -colorCode 'Green'
+            
+            # Mark all files in this project
+            Get-ChildItem -Path $path -File -Recurse | ForEach-Object {
+                $childInfo = [FileOrganizationInfo]::new($_.FullName, $false)
+                $childInfo.ProcessedAsProject = $true
+                $script:fileCollection += $childInfo
+            }
         }
         return
     }
     
+    # Skip if already processed as part of a project
+    if ($script:fileCollection.Where({ $_.SourcePath -eq $path -and $_.ProcessedAsProject }, 'First').Count -gt 0) {
+        return
+    }
+
     # Handle file categorization
     $extension = $fileInfo.FileType
     
@@ -195,6 +221,36 @@ function Initialize-FileInfo {
     }
 }
 
+# Initialize counters
+$script:fileCount = @{
+    Development = @{ Projects = 0; Standalone = 0 }
+    Media = @{ Images = 0; Videos = 0 }
+    Documents = @{ ByFamily = @{} }
+    Unknown = 0
+}
+
+# Load configuration
+$configPath = Join-Path $PSScriptRoot "..\config\file-organization-config.json"
+$config = Get-Content -Raw -Path $configPath | ConvertFrom-Json
+
+# Convert configuration to PowerShell objects
+$developmentExtensions = $config.extensions.development
+$imageExtensions = $config.extensions.images
+$videoExtensions = $config.extensions.videos
+$documentExtensions = $config.extensions.documents
+
+# Convert categories to hashtable
+$categoryKeywords = @{}
+$config.categories.PSObject.Properties | ForEach-Object {$categoryKeywords[$_.Name] = @{Include = $_.Value.include;Exclude = $_.Value.exclude}}
+
+# Convert family members to hashtable
+$familyKeywords = @{}
+$config.familyMembers.PSObject.Properties | ForEach-Object {$familyKeywords[$_.Name] = @{Include = $_.Value.include;Exclude = $_.Value.exclude}}
+
+
+# Initialize file collection
+$script:fileCollection = @()
+
 # Main processing logic
 Write-Host "`nScanning files...`n" -ForegroundColor Blue
 
@@ -232,7 +288,7 @@ $processed = 0
 $totalMoves = $script:fileCollection.Count
 
 # Process all files
-$script:fileCollection | ForEach-Object {
+$script:fileCollection | Where-Object { !$_.ProcessedAsProject } | ForEach-Object {
     $processed++
     $progressPercentage = [Math]::Min(100, [Math]::Floor(($processed / $totalMoves) * 100))
     $fileName = Split-Path $_.SourcePath -Leaf
@@ -244,8 +300,7 @@ $script:fileCollection | ForEach-Object {
     }
     
     try {
-        Move-Item-Safe -Path $_.SourcePath -Destination $_.TargetPath
-        
+        Move-ItemSafe -Path $_.SourcePath -Destination $_.TargetPath
         # Update counters with better error handling
         switch ($_.Category) {
             "Development" { 
@@ -271,8 +326,10 @@ $script:fileCollection | ForEach-Object {
             "Unknown" { $script:fileCount.Unknown++ }
         }
         
-        # Display move message with appropriate color
-        Write-Host "Moved $($_.Category.ToLower()) file: $fileName" -ForegroundColor $_.ColorCode
+        # Display move message with appropriate color if verbose flag is set
+        if ($VerbosePreference -eq 'Continue') {
+            Write-Host "Moved $($_.Category.ToLower()) file [$fileName] to $($_.TargetPath)" -ForegroundColor $_.ColorCode
+        }
     }
     catch {
         Write-Warning "Failed to move file: $fileName`nError: $_"
