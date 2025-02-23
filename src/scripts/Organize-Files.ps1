@@ -95,7 +95,79 @@ function Move-ItemSafe {param([string]$Path,[string]$Destination)
     Move-Item -Path $Path -Destination $Destination -Force
 }
 
-function Get-FamilyMember {param([string]$fileName,[string]$content = "")
+function Get-FileMetadata {
+    param([string]$path)
+    
+    try {
+        $shell = New-Object -ComObject Shell.Application
+        $folder = Split-Path $path -Parent
+        $file = Split-Path $path -Leaf
+        $shellfolder = $shell.Namespace($folder)
+        $shellfile = $shellfolder.ParseName($file)
+        
+        $metadata = @{
+            # Existing metadata fields
+            Author = $shellfolder.GetDetailsOf($shellfile, 20)
+            Title = $shellfolder.GetDetailsOf($shellfile, 21)
+            Subject = $shellfolder.GetDetailsOf($shellfile, 22)
+            Keywords = $shellfolder.GetDetailsOf($shellfile, 23)
+            Comments = $shellfolder.GetDetailsOf($shellfile, 24)
+            Tags = $shellfolder.GetDetailsOf($shellfile, 18)
+            
+            # Additional category-related fields
+            Category = $shellfolder.GetDetailsOf($shellfile, 5)    # Document category
+            ContentType = $shellfolder.GetDetailsOf($shellfile, 11) # Content type/category
+            FileDescription = $shellfolder.GetDetailsOf($shellfile, 34) # File description
+            Company = $shellfolder.GetDetailsOf($shellfile, 25)    # Company (useful for Work category)
+            Program = $shellfolder.GetDetailsOf($shellfile, 7)     # Program name (useful for Games)
+            Project = $shellfolder.GetDetailsOf($shellfile, 63)    # Project name
+        }
+        
+        # Clean up COM objects
+        [System.Runtime.Interopservices.Marshal]::ReleaseComObject($shellfile) | Out-Null
+        [System.Runtime.Interopservices.Marshal]::ReleaseComObject($shellfolder) | Out-Null
+        [System.Runtime.Interopservices.Marshal]::ReleaseComObject($shell) | Out-Null
+        [System.GC]::Collect()
+        [System.GC]::WaitForPendingFinalizers()
+        
+        return $metadata
+    }
+    catch {
+        Write-Warning "Could not read metadata for file: $path"
+        return $null
+    }
+}
+
+function Get-FamilyMember {
+    param(
+        [string]$fileName,
+        [string]$content = "",
+        [hashtable]$metadata = $null
+    )
+    
+    # Check metadata first
+    if ($metadata) {
+        # Check Author field
+        if (![string]::IsNullOrWhiteSpace($metadata.Author)) {
+            foreach ($member in $familyKeywords.Keys) {
+                if (Test-ContentMatch -content $metadata.Author -includePatterns $familyKeywords[$member].Include -excludePatterns $familyKeywords[$member].Exclude) {
+                    return $member
+                }
+            }
+        }
+        
+        # Check other metadata fields for family member hints
+        $metaContent = @($metadata.Title, $metadata.Subject, $metadata.Comments, $metadata.Tags) -join " "
+        if (![string]::IsNullOrWhiteSpace($metaContent)) {
+            foreach ($member in $familyKeywords.Keys) {
+                if (Test-ContentMatch -content $metaContent -includePatterns $familyKeywords[$member].Include -excludePatterns $familyKeywords[$member].Exclude) {
+                    return $member
+                }
+            }
+        }
+    }
+    
+    # Then check filename and content as before
     foreach ($member in $familyKeywords.Keys) {
         if (Test-ContentMatch -content $fileName -includePatterns $familyKeywords[$member].Include -excludePatterns $familyKeywords[$member].Exclude) {return $member}
     }
@@ -105,13 +177,63 @@ function Get-FamilyMember {param([string]$fileName,[string]$content = "")
     return "01 - Family"
 }
 
-function Get-DocumentCategory {param([string]$fileName,[string]$content = "")
+function Get-DocumentCategory {
+    param(
+        [string]$fileName,
+        [string]$content = "",
+        [hashtable]$metadata = $null
+    )
+    
+    # Check metadata first
+    if ($metadata) {
+        # Combine all relevant metadata fields with priority on category-specific fields
+        $categoryContent = @(
+            $metadata.Category,
+            $metadata.ContentType,
+            $metadata.Project,
+            $metadata.Company,
+            $metadata.Program
+        ) | Where-Object { ![string]::IsNullOrWhiteSpace($_) }
+        
+        # Check category-specific fields first
+        if ($categoryContent.Count -gt 0) {
+            $categoryText = $categoryContent -join " "
+            foreach ($category in $categoryKeywords.Keys) {
+                if (Test-ContentMatch -content $categoryText -includePatterns $categoryKeywords[$category].Include -excludePatterns $categoryKeywords[$category].Exclude) {
+                    return $category
+                }
+            }
+        }
+        
+        # Then check other metadata fields
+        $generalContent = @(
+            $metadata.Keywords,
+            $metadata.Subject,
+            $metadata.Title,
+            $metadata.Comments,
+            $metadata.Tags,
+            $metadata.FileDescription
+        ) | Where-Object { ![string]::IsNullOrWhiteSpace($_) }
+        
+        if ($generalContent.Count -gt 0) {
+            $metaText = $generalContent -join " "
+            foreach ($category in $categoryKeywords.Keys) {
+                if (Test-ContentMatch -content $metaText -includePatterns $categoryKeywords[$category].Include -excludePatterns $categoryKeywords[$category].Exclude) {
+                    return $category
+                }
+            }
+        }
+    }
+    
+    # Then check filename and content as before
     foreach ($category in $categoryKeywords.Keys) {
         if (Test-ContentMatch -content $fileName -includePatterns $categoryKeywords[$category].Include -excludePatterns $categoryKeywords[$category].Exclude) {return $category}
     }
     if ($content) {
         foreach ($category in $categoryKeywords.Keys) {
-            if (Test-ContentMatch -content $content -includePatterns $categoryKeywords[$category].Include -excludePatterns $categoryKeywords[$category].Exclude) {return $category}
+            if (Test-ContentMatch -content $content -includePatterns $categoryKeywords[$category].Include -excludePatterns $categoryKeywords[$category].Exclude) {
+                return $category
+            }
         }
     }
     return "General"
@@ -202,17 +324,18 @@ function Initialize-FileInfo {
     }
     elseif ($documentExtensions -contains $extension) {
         $fileName = Split-Path $path -Leaf
-        $familyMember = Get-FamilyMember $fileName
-        $category = Get-DocumentCategory $fileName
+        $metadata = Get-FileMetadata -path $path
+        $familyMember = Get-FamilyMember -fileName $fileName -metadata $metadata
+        $category = Get-DocumentCategory -fileName $fileName -metadata $metadata
         
         if ($familyMember -eq "01 - Family" -or $category -eq "General") {
             try {
                 $content = Get-Content -Path $path -Raw
                 if ($familyMember -eq "01 - Family") {
-                    $familyMember = Get-FamilyMember $fileName $content
+                    $familyMember = Get-FamilyMember -fileName $fileName -content $content -metadata $metadata
                 }
                 if ($category -eq "General") {
-                    $category = Get-DocumentCategory $fileName $content
+                    $category = Get-DocumentCategory -fileName $fileName -content $content -metadata $metadata
                 }
             }
             catch {
