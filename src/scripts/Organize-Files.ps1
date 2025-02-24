@@ -621,11 +621,11 @@ $config.categories.PSObject.Properties | ForEach-Object {$categoryKeywords[$_.Na
 $familyKeywords = @{}
 $config.familyMembers.PSObject.Properties | ForEach-Object {$familyKeywords[$_.Name] = @{Include = $_.Value.include;Exclude = $_.Value.exclude}}
 
-# Add this after the configuration loading section
+# Replace the previous results loading section with this updated version
 $script:previousResults = @{}
-$previousResultsPath = Join-Path $PSScriptRoot "..\output\file-organization-results.json"
+$previousResultsPath = Join-Path $TargetDirectory ".file-organization-results.json"
 if (Test-Path $previousResultsPath) {
-    Write-Host "Loading previous results..." -ForegroundColor Blue
+    Write-Host "Loading previous results from: $previousResultsPath" -ForegroundColor Blue
     $previousData = Get-Content $previousResultsPath | ConvertFrom-Json
     foreach ($item in $previousData) {
         if ($item.UserSelected) {
@@ -784,12 +784,8 @@ foreach ($member in $fileCount.Documents.ByFamily.Keys | Sort-Object) {
     }
 }
 
-$jsonPath = Join-Path $PSScriptRoot "..\output\file-organization-results.json"
-$jsonDir = Split-Path $jsonPath -Parent
-if (!(Test-Path $jsonDir)) {
-    New-Item -ItemType Directory -Path $jsonDir -Force | Out-Null
-}
-
+# Replace the results saving section with this updated version
+$jsonPath = Join-Path $TargetDirectory ".file-organization-results.json"
 $fileCollection | ConvertTo-Json -Depth 10 | Set-Content $jsonPath
 Write-Host "`nFile organization details exported to: $jsonPath" -ForegroundColor Blue
 
