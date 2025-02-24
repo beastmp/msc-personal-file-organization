@@ -1,43 +1,36 @@
 # Personal File Organization System
 
-An intelligent file organization system built in PowerShell that automatically categorizes and organizes files based on content, filename, and file type.
+A PowerShell-based file organization system that intelligently sorts and categorizes files based on content, metadata, and type.
 
-## Features
-
-- **Smart Categorization**: Files are analyzed by both filename and content
-- **Family Member Detection**: Detects which family member a document belongs to
-- **Category Classification**: Organizes documents into categories like School, Work, Soccer, etc.
-- **Development Project Handling**: Preserves project structure for development files
-- **Media Organization**: Separates and organizes images and videos
-- **Duplicate Prevention**: Uses file hash comparison to prevent duplicate files
-- **Configurable Rules**: JSON-based configuration for easy customization
-- **Reversion Capability**: Can revert files back to their original location
-
-## Directory Structure
+## Repository Structure
 
 ```
-Organized/
-├── Development/
-│   └── [Project folders with structure preserved]
-├── Media/
-│   ├── Images/
-│   └── Videos/
+TargetDirectory/
 ├── Documents/
-│   ├── 01 - Family/
-│   │   └── [Categories]/
-│   ├── 02 - Michael/
-│   │   └── [Categories]/
-│   └── [Other Family Members]/
-│       └── [Categories]/
-└── Unknown/
+│ └── Personal/
+│ ├── 01 - Family/
+│ │ └── [Categories]/
+│ ├── 02 - Michael/
+│ │ └── [Categories]/
+│ ├── 03 - Jenna/
+│ │ └── [Categories]/
+│ ├── Development/
+│ │ ├── Projects/
+│ │ └── Standalone/
+│ └── Unknown/
+├── Media/
+│ ├── Pictures/
+│ └── Videos/
+└── Duplicates/
 ```
 
 ## Configuration
 
-The system uses a JSON configuration file (`file-organization-config.json`) that defines:
-- File extensions for different types (development, images, videos, documents)
-- Categories with include/exclude patterns
-- Family members with include/exclude patterns
+Uses a JSON configuration file (`file-organization-config.json`) for:
+- File extension mappings
+- Category patterns
+- Family member detection rules
+- Custom classification rules
 - Wildcard pattern support for flexible matching
 
 ## Scripts
@@ -103,8 +96,6 @@ The system uses a JSON configuration file (`file-organization-config.json`) that
 
 ## Future Enhancements
 
-1. GUI interface for configuration management
 2. Additional file type support
-3. Machine learning for improved categorization
 4. Cloud storage integration
 5. Scheduled organization tasks
