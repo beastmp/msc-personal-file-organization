@@ -1,68 +1,48 @@
 # Personal File Organization System
 
-An intelligent file organization system built in PowerShell that automatically categorizes and organizes files based on content, filename, and file type.
+A PowerShell-based file organization system that intelligently sorts and categorizes files based on content, metadata, and type.
 
-## Features
+## Overview
 
-- **Smart Categorization**: Files are analyzed by both filename and content
-- **Family Member Detection**: Detects which family member a document belongs to
-- **Category Classification**: Organizes documents into categories like School, Work, Soccer, etc.
-- **Development Project Handling**: Preserves project structure for development files
-- **Media Organization**: Separates and organizes images and videos
-- **Duplicate Prevention**: Uses file hash comparison to prevent duplicate files
-- **Configurable Rules**: JSON-based configuration for easy customization
-- **Reversion Capability**: Can revert files back to their original location
+This system helps organize personal and family files into a structured directory system, with special handling for development projects, media files, and duplicate detection.
 
-## Directory Structure
+## Prerequisites
 
-```
-Organized/
-├── Development/
-│   └── [Project folders with structure preserved]
-├── Media/
-│   ├── Images/
-│   └── Videos/
-├── Documents/
-│   ├── 01 - Family/
-│   │   └── [Categories]/
-│   ├── 02 - Michael/
-│   │   └── [Categories]/
-│   └── [Other Family Members]/
-│       └── [Categories]/
-└── Unknown/
-```
+- PowerShell 5.1 or higher
+- Windows OS
+- Write permissions on target directories
 
-## Configuration
+## Installation
 
-The system uses a JSON configuration file (`file-organization-config.json`) that defines:
-- File extensions for different types (development, images, videos, documents)
-- Categories with include/exclude patterns
-- Family members with include/exclude patterns
-- Wildcard pattern support for flexible matching
-
-## Scripts
-
-### Organize-Files.ps1
-- Main organization script
-- Processes files based on configuration
-- Maintains folder structures
-- Prevents duplicates
-- Provides detailed progress and summary
-
-### Revert-FileOrganization.ps1
-- Reverts organized files back to source
-- Maintains development project structures
-- Handles file naming conflicts
-- Provides operation summary
+1. Clone the repository
+2. Configure your settings in [src/config/file-organization-config.json](src/config/file-organization-config.json)
+3. Run the scripts from PowerShell
 
 ## Usage
 
 ```powershell
 # Organize files
-.\Organize-Files.ps1 -SourceDirectory "path\to\source" -TargetDirectory "path\to\target"
+.\src\scripts\Organize-Files.ps1 -SourceDirectory "path\to\source" -TargetDirectory "path\to\target"
 
 # Revert organization
-.\Revert-FileOrganization.ps1 -SourceDirectory "path\to\source" -TargetDirectory "path\to\target"
+.\src\scripts\Revert-FileOrganization.ps1 -SourceDirectory "path\to\source" -TargetDirectory "path\to\target"
+```
+
+## Directory Structure
+
+```
+TargetDirectory/
+├── Documents/
+│   └── Personal/
+│       ├── 01 - Family/
+│       ├── 02 - Michael/
+│       ├── 03 - Jenna/
+│       ├── Development/
+│       └── Unknown/
+├── Media/
+│   ├── Pictures/
+│   └── Videos/
+└── Duplicates/
 ```
 
 ## Key Features
@@ -93,18 +73,43 @@ The system uses a JSON configuration file (`file-organization-config.json`) that
    - Provides detailed logging
    - Includes reversion capability
 
-## Technical Details
+## Configuration
+
+Configure the system using (`file-organization-config.json`) with:
+- File extension mappings
+- Category patterns
+- Family member detection rules
+- Custom classification rules
+- Wildcard pattern support for flexible matching
+
+## Testing
+
+Run the Pester tests using:
+
+```powershell
+Invoke-Pester .\src\tests\Organize-Files.Tests.ps1
+```
+
+## Technical Stack
 
 - **Language**: PowerShell
 - **Configuration**: JSON
+- **Testing**: Pester
 - **Pattern Matching**: Regular Expressions with wildcard support
-- **File Handling**: Hash-based duplicate detection
-- **Progress Tracking**: Real-time progress and summary reporting
+- **Duplicate Detection**: Hash-based comparison
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Submit a pull request
+
+## License
+
+GPL License - See LICENSE file for details
 
 ## Future Enhancements
 
-1. GUI interface for configuration management
 2. Additional file type support
-3. Machine learning for improved categorization
 4. Cloud storage integration
 5. Scheduled organization tasks

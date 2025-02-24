@@ -75,7 +75,7 @@ Describe "File Organization Tests" {
             Initialize-FileInfo -path $testFile -isDirectory $false
             
             $fileCollection[0].Category | Should -Be "Media"
-            $fileCollection[0].SubCategory | Should -Be "Images"
+            $fileCollection[0].SubCategory | Should -Be "Pictures"  # Changed from Images
         }
         
         It "Identifies video files correctly" {
@@ -113,6 +113,7 @@ Describe "File Organization Tests" {
             $psFile = Join-Path $sourceDir "test.ps1"
             $imageFile = Join-Path $sourceDir "test.jpg"
             $docFile = Join-Path $sourceDir "test.docx"
+            $unknownFile = Join-Path $sourceDir "test.xyz"
             
             New-TestFile -Path $psFile -Content "Write-Host 'Test'"
             New-TestFile -Path $imageFile
@@ -120,6 +121,7 @@ Describe "File Organization Tests" {
                 Author = "Michael Smith"
                 Title = "Test Document"
             }
+            New-TestFile -Path $unknownFile
             
             # Mock Move-ItemSafe to track moves
             Mock Move-ItemSafe -MockWith { }
@@ -129,8 +131,14 @@ Describe "File Organization Tests" {
                 Initialize-FileInfo -path $_.FullName -isDirectory $false
             }
             
-            # Verify expected moves
-            Should -Invoke Move-ItemSafe -Times 3
+            # Verify expected paths
+            $script:fileCollection[0].TargetPath | Should -Match "Documents\\Personal\\Development\\Standalone\\PowerShell"
+            $script:fileCollection[1].TargetPath | Should -Match "Media\\Pictures"  # Changed from Images
+            $script:fileCollection[2].TargetPath | Should -Match "Documents\\Personal\\02 - Michael"
+            $script:fileCollection[3].TargetPath | Should -Match "Documents\\Personal\\Unknown"
+            
+            # Verify moves were called
+            Should -Invoke Move-ItemSafe -Times 4
         }
     }
     
@@ -174,6 +182,148 @@ Describe "File Organization Tests" {
             $fileInfo.DetectedFamilyMembers["Michael"].Value | Should -Be "Michael"
             $fileInfo.DetectedFamilyMembers["Michael"].Sources | Should -Contain "Filename"
             $fileInfo.DetectedFamilyMembers["Michael"].MatchedPatterns | Should -Contain "Michael*"
+        }
+    }
+    
+    Context "Duplicate File Handling" {
+        BeforeEach {
+            # Clear test directories
+            Get-ChildItem -Path $sourceDir -Recurse | Remove-Item -Force -Recurse
+            Get-ChildItem -Path $targetDir -Recurse | Remove-Item -Force -Recurse
+        }
+        
+        It "Moves duplicate files to root Duplicates folder" {
+            # Create original file
+            $originalContent = "Test Content"
+            $sourceFile1 = Join-Path $sourceDir "original.jpg"
+            $sourceFile2 = Join-Path $sourceDir "duplicate.jpg"
+            Set-Content -Path $sourceFile1 -Value $originalContent
+            Set-Content -Path $sourceFile2 -Value $originalContent
+            
+            $targetFile = Join-Path $targetDir "Media\Images\test.jpg"
+            
+            # Move first file
+            Move-ItemSafe -Path $sourceFile1 -Destination $targetFile
+            
+            # Move duplicate file
+            Move-ItemSafe -Path $sourceFile2 -Destination $targetFile
+            
+            # Check if duplicate was moved to root Duplicates folder
+            $duplicatesDir = Join-Path $targetDir "Duplicates"
+            $duplicateFiles = Get-ChildItem -Path $duplicatesDir -File
+            
+            $duplicateFiles.Count | Should -Be 1
+            $duplicateFiles[0].Extension | Should -Be ".jpg"
+            
+            # Verify content matches
+            $originalHash = Get-FileHash -Path $targetFile
+            $duplicateHash = Get-FileHash -Path $duplicateFiles[0].FullName
+            $originalHash.Hash | Should -Be $duplicateHash.Hash
+        }
+        
+        It "Moves duplicate files to Duplicates folder" {
+            # Create original file
+            $originalContent = "Test Content"
+            $sourceFile1 = Join-Path $sourceDir "original.txt"
+            $sourceFile2 = Join-Path $sourceDir "duplicate.txt"
+            Set-Content -Path $sourceFile1 -Value $originalContent
+            Set-Content -Path $sourceFile2 -Value $originalContent
+            
+            $targetFile = Join-Path $targetDir "test.txt"
+            
+            # Move first file
+            Move-ItemSafe -Path $sourceFile1 -Destination $targetFile
+            
+            # Move duplicate file
+            Move-ItemSafe -Path $sourceFile2 -Destination $targetFile
+            
+            # Check if duplicate was moved to Duplicates folder
+            $duplicatesDir = Join-Path $targetDir "Documents\Duplicates"
+            $duplicateFiles = Get-ChildItem -Path $duplicatesDir -File
+            
+            $duplicateFiles.Count | Should -Be 1
+            $duplicateFiles[0].Extension | Should -Be ".txt"
+            
+            # Verify content matches
+            $originalHash = Get-FileHash -Path $targetFile
+            $duplicateHash = Get-FileHash -Path $duplicateFiles[0].FullName
+            $originalHash.Hash | Should -Be $duplicateHash.Hash
+        }
+        
+        It "Handles multiple duplicates with unique names" {
+            # Create multiple identical files
+            $content = "Test Content"
+            1..3 | ForEach-Object {
+                $sourceFile = Join-Path $sourceDir "file$_.txt"
+                Set-Content -Path $sourceFile -Value $content
+            }
+            
+            $targetFile = Join-Path $targetDir "test.txt"
+            
+            # Move all files
+            Get-ChildItem -Path $sourceDir | ForEach-Object {
+                Move-ItemSafe -Path $_.FullName -Destination $targetFile
+            }
+            
+            # Check duplicates folder
+            $duplicatesDir = Join-Path $targetDir "Documents\Duplicates"
+            $duplicateFiles = Get-ChildItem -Path $duplicatesDir -File
+            
+            $duplicateFiles.Count | Should -Be 2
+            $duplicateFiles | ForEach-Object {
+                $hash = Get-FileHash -Path $_.FullName
+                $hash.Hash | Should -Be (Get-FileHash -Path $targetFile).Hash
+            }
+        }
+        
+        It "Skips moving identical files with same path" {
+            # Create a file
+            $content = "Test Content"
+            $sourceFile = Join-Path $sourceDir "test.txt"
+            Set-Content -Path $sourceFile -Value $content
+            
+            # Try to move to same location
+            Move-ItemSafe -Path $sourceFile -Destination $sourceFile
+            
+            # Verify file still exists in original location
+            Test-Path $sourceFile | Should -Be $true
+            
+            # Verify no duplicates folder was created
+            $duplicatesDir = Join-Path $targetDir "Documents\Duplicates"
+            Test-Path $duplicatesDir | Should -Be $false
+        }
+        
+        It "Moves duplicate files to root Duplicates folder" {
+            # Create source directories
+            $imageDir = Join-Path $sourceDir "Images"
+            New-Item -ItemType Directory -Path $imageDir -Force
+            
+            # Create original file
+            $originalContent = "Test Content"
+            $sourceFile1 = Join-Path $imageDir "original.jpg"
+            $sourceFile2 = Join-Path $imageDir "duplicate.jpg"
+            Set-Content -Path $sourceFile1 -Value $originalContent
+            Set-Content -Path $sourceFile2 -Value $originalContent
+            
+            $targetFile = Join-Path $targetDir "Media\Images\test.jpg"
+            
+            # Move first file
+            Move-ItemSafe -Path $sourceFile1 -Destination $targetFile
+            
+            # Move duplicate file
+            Move-ItemSafe -Path $sourceFile2 -Destination $targetFile
+            
+            # Check if duplicate was moved to root Duplicates folder
+            $duplicatesDir = Join-Path $targetDir "Duplicates\Images"
+            $duplicateFiles = Get-ChildItem -Path $duplicatesDir -File
+            
+            $duplicateFiles.Count | Should -Be 1
+            $duplicateFiles[0].Extension | Should -Be ".jpg"
+            
+            # Verify content matches
+            $originalHash = Get-FileHash -Path $targetFile
+            $duplicateHash = Get-FileHash -Path $duplicateFiles[0].FullName
+            $originalHash.Hash | Should -Be $duplicateHash.Hash
         }
     }
 }

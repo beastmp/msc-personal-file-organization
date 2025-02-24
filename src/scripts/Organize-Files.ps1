@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
-    [string]$SourceDirectory = "D:\Apps\Microsoft\OneDrive\Documents\Personal\Organized",
-    [string]$TargetDirectory = "D:\Apps\Microsoft\OneDrive\Documents\Personal\Organized"
+    [string]$SourceDirectory = "D:\Apps\Microsoft\OneDrive\Documents\Personal\Documents",
+    [string]$TargetDirectory = "D:\Apps\Microsoft\OneDrive"
 )
 
 # File organization class
@@ -118,18 +118,59 @@ function Test-IsDevelopmentProject {
 
 function Test-IsStandaloneDevelopmentFile {param([string]$path) $extension = [System.IO.Path]::GetExtension($path).ToLower();return $developmentExtensions -contains $extension}
 
-function Move-ItemSafe {param([string]$Path,[string]$Destination)
+function Get-DuplicateDestination {
+    param(
+        [string]$SourcePath,
+        [string]$FileName
+    )
+    
+    $duplicatesDir = Join-Path $TargetDirectory "Duplicates"
+    if (!(Test-Path $duplicatesDir)) {
+        New-Item -ItemType Directory -Path $duplicatesDir -Force | Out-Null
+    }
+    
+    $sourceHash = (Get-FileHash -Path $SourcePath).Hash
+    $baseName = [System.IO.Path]::GetFileNameWithoutExtension($FileName)
+    $extension = [System.IO.Path]::GetExtension($FileName)
+    $duplicatePath = Join-Path $duplicatesDir "${baseName}_${sourceHash}${extension}"
+    
+    return $duplicatePath
+}
+
+function Move-ItemSafe {
+    param(
+        [string]$Path,
+        [string]$Destination
+    )
+    
     $fileName = Split-Path $Destination -Leaf
     $targetDir = Split-Path $Destination -Parent
     $baseName = [System.IO.Path]::GetFileNameWithoutExtension($fileName)
     $extension = [System.IO.Path]::GetExtension($fileName)
     $counter = 1
+    
     if (Test-Path $Destination) {
         $sourceHash = (Get-FileHash -Path $Path).Hash
         $destHash = (Get-FileHash -Path $Destination).Hash
-        if ($sourceHash -eq $destHash) {Write-Verbose "Skipping identical file: $fileName";return}
-        while (Test-Path $Destination) {$Destination = Join-Path $targetDir "${baseName}_${counter}${extension}";$counter++}
+        
+        if ($sourceHash -eq $destHash) {
+            # File is a duplicate but not identical path
+            if ($Path -ne $Destination) {
+                $duplicatePath = Get-DuplicateDestination -SourcePath $Path -FileName $fileName
+                Write-Verbose "Moving duplicate file to: $duplicatePath"
+                Move-Item -Path $Path -Destination $duplicatePath -Force
+            } else {
+                Write-Verbose "Skipping identical file with same path: $fileName"
+            }
+            return
+        }
+        
+        while (Test-Path $Destination) {
+            $Destination = Join-Path $targetDir "${baseName}_${counter}${extension}"
+            $counter++
+        }
     }
+    
     Move-Item -Path $Path -Destination $Destination -Force
 }
 
@@ -298,10 +339,10 @@ function Add-ToFileCollection {
 function Initialize-FileInfo {
     param([string]$path, [bool]$isDirectory)
     
-    # Skip only Development\Projects folder
-    $projectsFolder = Join-Path $TargetDirectory "Development\Projects"
-    if ($path.StartsWith($projectsFolder)) {
-        Write-Verbose "Skipping projects folder: $path"
+    # Skip only Development folder
+    $developmentFolder = Join-Path $TargetDirectory "Documents\Personal\Development"
+    if ($path.StartsWith($developmentFolder)) {
+        Write-Verbose "Skipping development folder: $path"
         return
     }
     
@@ -312,14 +353,9 @@ function Initialize-FileInfo {
             $relativePath = $path
             if ($path.StartsWith($SourceDirectory)) {
                 $relativePath = $path.Substring($SourceDirectory.Length).TrimStart('\')
-                
-                # Remove existing Development\Projects from the path if it exists
-                if ($relativePath -match '^Development\\Projects\\(.+)$') {
-                    $relativePath = $matches[1]
-                }
             }
             
-            $targetPath = Join-Path $TargetDirectory "Development\Projects\$relativePath"
+            $targetPath = Join-Path $TargetDirectory "Documents\Personal\Development\Projects\$relativePath"
             Add-ToFileCollection -fileInfo $fileInfo -category "Development" -subCategory "Project" -targetPath $targetPath -colorCode 'Green'
             
             # Mark all files in this project
@@ -349,12 +385,12 @@ function Initialize-FileInfo {
             ".ts"  { "TypeScript" }
             default { "Other" }
         }
-        $targetPath = Join-Path $TargetDirectory "Development\Standalone\$fileType\$(Split-Path $path -Leaf)"
+        $targetPath = Join-Path $TargetDirectory "Documents\Personal\Development\Standalone\$fileType\$(Split-Path $path -Leaf)"
         Add-ToFileCollection -fileInfo $fileInfo -category "Development" -subCategory "Standalone" -targetPath $targetPath -colorCode 'Green'
     }
     elseif ($imageExtensions -contains $extension) {
-        $targetPath = Join-Path $TargetDirectory "Media\Images\$(Split-Path $path -Leaf)"
-        Add-ToFileCollection -fileInfo $fileInfo -category "Media" -subCategory "Images" -targetPath $targetPath -colorCode 'Cyan'
+        $targetPath = Join-Path $TargetDirectory "Media\Pictures\$(Split-Path $path -Leaf)"
+        Add-ToFileCollection -fileInfo $fileInfo -category "Media" -subCategory "Pictures" -targetPath $targetPath -colorCode 'Cyan'
     }
     elseif ($videoExtensions -contains $extension) {
         $targetPath = Join-Path $TargetDirectory "Media\Videos\$(Split-Path $path -Leaf)"
@@ -400,11 +436,11 @@ function Initialize-FileInfo {
             "General"
         }
         
-        $targetPath = Join-Path $TargetDirectory "Documents\${familyMember}\${category}\${fileName}"
+        $targetPath = Join-Path $TargetDirectory "Documents\Personal\${familyMember}\${category}\${fileName}"
         Add-ToFileCollection -fileInfo $fileInfo -category "Documents" -subCategory $category -familyMember $familyMember -targetPath $targetPath -colorCode 'Yellow'
     }
     else {
-        $targetPath = Join-Path $TargetDirectory "Unknown\$(Split-Path $path -Leaf)"
+        $targetPath = Join-Path $TargetDirectory "Documents\Personal\Unknown\$(Split-Path $path -Leaf)"
         Add-ToFileCollection -fileInfo $fileInfo -category "Unknown" -targetPath $targetPath -colorCode 'Red'
     }
 }
@@ -598,7 +634,7 @@ function Get-UserSelection {
 # Initialize counters
 $script:fileCount = @{
     Development = @{ Projects = 0; Standalone = 0 }
-    Media = @{ Images = 0; Videos = 0 }
+    Media = @{ Pictures = 0; Videos = 0 }  # Changed Images to Pictures
     Documents = @{ ByFamily = @{} }
     Unknown = 0
 }
@@ -737,7 +773,7 @@ $script:fileCollection | Where-Object { !$_.ProcessedAsProject } | ForEach-Objec
                 else { $script:fileCount.Development.Standalone++ }
             }
             "Media" {
-                if ($_.SubCategory -eq "Images") { $script:fileCount.Media.Images++ }
+                if ($_.SubCategory -eq "Pictures") { $script:fileCount.Media.Pictures++ }  # Changed from Images
                 else { $script:fileCount.Media.Videos++ }
             }
             "Documents" {
@@ -773,7 +809,7 @@ Write-Host "`nDevelopment:" -ForegroundColor Green
 Write-Host "  - Projects: $($script:fileCount.Development.Projects)" -ForegroundColor Green
 Write-Host "  - Standalone: $($script:fileCount.Development.Standalone)" -ForegroundColor Green
 Write-Host "`nMedia:" -ForegroundColor Cyan
-Write-Host "  - Images: $($script:fileCount.Media.Images)" -ForegroundColor Cyan
+Write-Host "  - Pictures: $($script:fileCount.Media.Pictures)" -ForegroundColor Cyan  # Changed from Images
 Write-Host "  - Videos: $($script:fileCount.Media.Videos)" -ForegroundColor Cyan
 Write-Host "`nUnknown Files: $($script:fileCount.Unknown)" -ForegroundColor Red
 Write-Host "`nDocuments by Family Member:" -ForegroundColor Yellow
