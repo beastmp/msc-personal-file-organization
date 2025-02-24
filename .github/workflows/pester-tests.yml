@@ -1,0 +1,48 @@
+name: Pester Tests
+
+on:
+  pull_request:
+    branches: 
+      - main
+      - develop
+    paths:
+      - 'src/**'
+      - 'src/tests/**.Tests.ps1'
+      - '.github/workflows/pester-tests.yml'
+
+jobs:
+  test:
+    name: Run Pester Tests
+    runs-on: windows-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+      
+    - name: Install Pester
+      shell: pwsh
+      run: |
+        Install-Module -Name Pester -Force -SkipPublisherCheck
+        
+    - name: Run Pester Tests
+      shell: pwsh
+      run: |
+        $config = New-PesterConfiguration
+        $config.TestResult.Enabled = $true
+        $config.TestResult.OutputPath = "test-results.xml"
+        $config.TestResult.OutputFormat = "NUnitXml"
+        $config.Run.Path = "./src/tests"
+        $config.Run.PassThru = $true
+        $results = Invoke-Pester -Configuration $config
+        
+        if ($results.FailedCount -gt 0) {
+          Write-Error "Failed tests: $($results.FailedCount)"
+          exit 1
+        }
+      
+    - name: Upload test results
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: test-results
+        path: test-results.xml

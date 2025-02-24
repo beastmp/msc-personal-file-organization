@@ -1,0 +1,22 @@
+{
+    "Run": {
+        "PassThru": true,
+        "Exit": false
+    },
+    "Output": {
+        "Verbosity": "Detailed"
+    },
+    "TestResult": {
+        "Enabled": true,
+        "OutputPath": "TestResults.xml",
+        "OutputFormat": "NUnitXml"
+    },
+    "CodeCoverage": {
+        "Enabled": true,
+        "OutputPath": "CodeCoverage.xml",
+        "OutputFormat": "JaCoCo",
+        "Path": [
+            "../scripts/Organize-Files.ps1"
+        ]
+    }
+}
