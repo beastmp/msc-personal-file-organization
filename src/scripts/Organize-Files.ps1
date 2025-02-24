@@ -376,14 +376,24 @@ function Initialize-FileInfo {
         Get-AllPossibleFamilyMembers -fileInfo $fileInfo -content $content
         Get-AllPossibleCategories -fileInfo $fileInfo -content $content
         
-        $familyMember = if ($fileInfo.DetectedFamilyMembers.Count -gt 0) {
+        $previousResult = $script:previousResults[$path]
+        $familyMember = if ($previousResult) {
+            # Update to safely copy the hashtables
+            $fileInfo.DetectedFamilyMembers = $previousResult.DetectedFamilyMembers.Clone()
+            $fileInfo.UserSelected = $true
+            $previousResult.FamilyMember
+        } elseif ($fileInfo.DetectedFamilyMembers.Count -gt 0) {
             $fileInfo.UserSelected = $true
             Get-UserSelection -prompt "Select family member for $fileName" -detections $fileInfo.DetectedFamilyMembers -default "01 - Family"
         } else {
             "01 - Family"
         }
         
-        $category = if ($fileInfo.DetectedCategories.Count -gt 0) {
+        $category = if ($previousResult) {
+            # Update to safely copy the hashtables
+            $fileInfo.DetectedCategories = $previousResult.DetectedCategories.Clone()
+            $previousResult.SubCategory
+        } elseif ($fileInfo.DetectedCategories.Count -gt 0) {
             $fileInfo.UserSelected = $true
             Get-UserSelection -prompt "Select category for $fileName" -detections $fileInfo.DetectedCategories -default "General"
         } else {
@@ -564,7 +574,10 @@ function Get-UserSelection {
         
         $sources = ($detection.Sources | Select-Object -Unique) -join ', '
         $patterns = ($detection.MatchedPatterns | Select-Object -Unique) -join ', '
-        Write-Host "$i`: $($detection.Value) | Sources: [$sources] Matches: [$patterns]" -ForegroundColor Gray
+        
+        # Add indicator if this was previously selected
+        $previousIndicator = if ($detection.Value -eq $default) { " (Previous Selection)" } else { "" }
+        Write-Host "$i`: $($detection.Value)$previousIndicator | Sources: [$sources] Matches: [$patterns]" -ForegroundColor Gray
         $i++
     }
     
@@ -608,6 +621,52 @@ $config.categories.PSObject.Properties | ForEach-Object {$categoryKeywords[$_.Na
 $familyKeywords = @{}
 $config.familyMembers.PSObject.Properties | ForEach-Object {$familyKeywords[$_.Name] = @{Include = $_.Value.include;Exclude = $_.Value.exclude}}
 
+# Replace the previous results loading section with this updated version
+$script:previousResults = @{}
+$previousResultsPath = Join-Path $TargetDirectory ".file-organization-results.json"
+if (Test-Path $previousResultsPath) {
+    Write-Host "Loading previous results from: $previousResultsPath" -ForegroundColor Blue
+    $previousData = Get-Content $previousResultsPath | ConvertFrom-Json
+    foreach ($item in $previousData) {
+        if ($item.UserSelected) {
+            # Convert PSCustomObject to Hashtables
+            $detectedFamilyMembers = @{
+            }
+            if ($item.DetectedFamilyMembers.PSObject.Properties) {
+                foreach ($prop in $item.DetectedFamilyMembers.PSObject.Properties) {
+                    $detectionSource = [DetectionSource]::new(
+                        $prop.Value.Value,
+                        [string[]]$prop.Value.Sources,
+                        [string[]]$prop.Value.MatchedPatterns
+                    )
+                    $detectedFamilyMembers[$prop.Name] = $detectionSource
+                }
+            }
+
+            $detectedCategories = @{
+            }
+            if ($item.DetectedCategories.PSObject.Properties) {
+                foreach ($prop in $item.DetectedCategories.PSObject.Properties) {
+                    $detectionSource = [DetectionSource]::new(
+                        $prop.Value.Value,
+                        [string[]]$prop.Value.Sources,
+                        [string[]]$prop.Value.MatchedPatterns
+                    )
+                    $detectedCategories[$prop.Name] = $detectionSource
+                }
+            }
+
+            $script:previousResults[$item.SourcePath] = @{
+                Category = $item.Category
+                SubCategory = $item.SubCategory
+                FamilyMember = $item.FamilyMember
+                DetectedFamilyMembers = $detectedFamilyMembers
+                DetectedCategories = $detectedCategories
+            }
+        }
+    }
+    Write-Host "Loaded $($script:previousResults.Count) previous selections" -ForegroundColor Blue
+}
 
 # Initialize file collection
 $script:fileCollection = @()
@@ -725,12 +784,8 @@ foreach ($member in $fileCount.Documents.ByFamily.Keys | Sort-Object) {
     }
 }
 
-$jsonPath = Join-Path $PSScriptRoot "..\output\file-organization-results.json"
-$jsonDir = Split-Path $jsonPath -Parent
-if (!(Test-Path $jsonDir)) {
-    New-Item -ItemType Directory -Path $jsonDir -Force | Out-Null
-}
-
+# Replace the results saving section with this updated version
+$jsonPath = Join-Path $TargetDirectory ".file-organization-results.json"
 $fileCollection | ConvertTo-Json -Depth 10 | Set-Content $jsonPath
 Write-Host "`nFile organization details exported to: $jsonPath" -ForegroundColor Blue
 
