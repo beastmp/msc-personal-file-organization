@@ -16,6 +16,10 @@ class FileOrganizationInfo {
     [string]$RelativePath  # For development projects
     [string]$ColorCode  # Add color code property
     [bool]$ProcessedAsProject  # Add new flag
+    [hashtable]$DetectedFamilyMembers  # Changed from string[] to hashtable
+    [hashtable]$DetectedCategories  # Changed from string[] to hashtable
+    [hashtable]$Metadata
+    [bool]$UserSelected
     
     FileOrganizationInfo([string]$sourcePath, [bool]$isDirectory) {
         $this.SourcePath = $sourcePath
@@ -23,6 +27,40 @@ class FileOrganizationInfo {
         $this.FileType = if ($isDirectory) { "Directory" } else { [System.IO.Path]::GetExtension($sourcePath).ToLower() }
         $this.ColorCode = 'White'  # Default color
         $this.ProcessedAsProject = $false
+        $this.DetectedFamilyMembers = @{}
+        $this.DetectedCategories = @{}
+        $this.Metadata = @{}
+        $this.UserSelected = $false
+    }
+
+    [void] AddFamilyMemberDetection([string]$member, [string]$source, [string]$pattern) {
+        if (!$this.DetectedFamilyMembers.ContainsKey($member)) {
+            $this.DetectedFamilyMembers[$member] = [DetectionSource]::new($member, $source, $pattern)
+        } else {
+            $this.DetectedFamilyMembers[$member].Sources += $source
+            $this.DetectedFamilyMembers[$member].MatchedPatterns += $pattern
+        }
+    }
+
+    [void] AddCategoryDetection([string]$category, [string]$source, [string]$pattern) {
+        if (!$this.DetectedCategories.ContainsKey($category)) {
+            $this.DetectedCategories[$category] = [DetectionSource]::new($category, $source, $pattern)
+        } else {
+            $this.DetectedCategories[$category].Sources += $source
+            $this.DetectedCategories[$category].MatchedPatterns += $pattern
+        }
+    }
+}
+
+class DetectionSource {
+    [string]$Value
+    [string[]]$Sources
+    [string[]]$MatchedPatterns
+
+    DetectionSource([string]$value, [string]$source, [string]$pattern) {
+        $this.Value = $value
+        $this.Sources = @($source)
+        $this.MatchedPatterns = @($pattern)
     }
 }
 
@@ -325,22 +363,31 @@ function Initialize-FileInfo {
     elseif ($documentExtensions -contains $extension) {
         $fileName = Split-Path $path -Leaf
         $metadata = Get-FileMetadata -path $path
-        $familyMember = Get-FamilyMember -fileName $fileName -metadata $metadata
-        $category = Get-DocumentCategory -fileName $fileName -metadata $metadata
+        $fileInfo.Metadata = $metadata
         
-        if ($familyMember -eq "01 - Family" -or $category -eq "General") {
-            try {
-                $content = Get-Content -Path $path -Raw
-                if ($familyMember -eq "01 - Family") {
-                    $familyMember = Get-FamilyMember -fileName $fileName -content $content -metadata $metadata
-                }
-                if ($category -eq "General") {
-                    $category = Get-DocumentCategory -fileName $fileName -content $content -metadata $metadata
-                }
-            }
-            catch {
-                Write-Warning "Could not read content of file: $fileName"
-            }
+        try {
+            $content = Get-Content -Path $path -Raw
+        }
+        catch {
+            Write-Warning "Could not read content of file: $fileName"
+            $content = ""
+        }
+        
+        Get-AllPossibleFamilyMembers -fileInfo $fileInfo -content $content
+        Get-AllPossibleCategories -fileInfo $fileInfo -content $content
+        
+        $familyMember = if ($fileInfo.DetectedFamilyMembers.Count -gt 0) {
+            $fileInfo.UserSelected = $true
+            Get-UserSelection -prompt "Select family member for $fileName" -detections $fileInfo.DetectedFamilyMembers -default "01 - Family"
+        } else {
+            "01 - Family"
+        }
+        
+        $category = if ($fileInfo.DetectedCategories.Count -gt 0) {
+            $fileInfo.UserSelected = $true
+            Get-UserSelection -prompt "Select category for $fileName" -detections $fileInfo.DetectedCategories -default "General"
+        } else {
+            "General"
         }
         
         $targetPath = Join-Path $TargetDirectory "Documents\${familyMember}\${category}\${fileName}"
@@ -350,6 +397,189 @@ function Initialize-FileInfo {
         $targetPath = Join-Path $TargetDirectory "Unknown\$(Split-Path $path -Leaf)"
         Add-ToFileCollection -fileInfo $fileInfo -category "Unknown" -targetPath $targetPath -colorCode 'Red'
     }
+}
+
+function Get-AllPossibleFamilyMembers {
+    param(
+        [FileOrganizationInfo]$fileInfo,
+        [string]$content = ""
+    )
+    
+    # Check metadata
+    if ($fileInfo.Metadata) {
+        if (![string]::IsNullOrWhiteSpace($fileInfo.Metadata.Author)) {
+            foreach ($member in $familyKeywords.Keys) {
+                $patterns = $familyKeywords[$member].Include
+                foreach ($pattern in $patterns) {
+                    if (Test-ContentMatch -content $fileInfo.Metadata.Author -includePatterns @($pattern) -excludePatterns $familyKeywords[$member].Exclude) {
+                        $fileInfo.AddFamilyMemberDetection($member, "Metadata (Author)", $pattern)
+                    }
+                }
+            }
+        }
+        
+        $metaFields = @{
+            "Title" = $fileInfo.Metadata.Title
+            "Subject" = $fileInfo.Metadata.Subject
+            "Comments" = $fileInfo.Metadata.Comments
+            "Tags" = $fileInfo.Metadata.Tags
+        }
+        
+        foreach ($field in $metaFields.Keys) {
+            if (![string]::IsNullOrWhiteSpace($metaFields[$field])) {
+                foreach ($member in $familyKeywords.Keys) {
+                    $patterns = $familyKeywords[$member].Include
+                    foreach ($pattern in $patterns) {
+                        if (Test-ContentMatch -content $metaFields[$field] -includePatterns @($pattern) -excludePatterns $familyKeywords[$member].Exclude) {
+                            $fileInfo.AddFamilyMemberDetection($member, "Metadata ($field)", $pattern)
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    # Check filename
+    $fileName = Split-Path $fileInfo.SourcePath -Leaf
+    foreach ($member in $familyKeywords.Keys) {
+        $patterns = $familyKeywords[$member].Include
+        foreach ($pattern in $patterns) {
+            if (Test-ContentMatch -content $fileName -includePatterns @($pattern) -excludePatterns $familyKeywords[$member].Exclude) {
+                $fileInfo.AddFamilyMemberDetection($member, "Filename", $pattern)
+            }
+        }
+    }
+    
+    # Check content
+    if ($content) {
+        foreach ($member in $familyKeywords.Keys) {
+            $patterns = $familyKeywords[$member].Include
+            foreach ($pattern in $patterns) {
+                if (Test-ContentMatch -content $content -includePatterns @($pattern) -excludePatterns $familyKeywords[$member].Exclude) {
+                    $fileInfo.AddFamilyMemberDetection($member, "Content", $pattern)
+                }
+            }
+        }
+    }
+    
+    return $fileInfo.DetectedFamilyMembers
+}
+
+function Get-AllPossibleCategories {
+    param(
+        [FileOrganizationInfo]$fileInfo,
+        [string]$content = ""
+    )
+    
+    $detections = @{}
+    
+    # Check metadata
+    if ($fileInfo.Metadata) {
+        $categoryContent = @(
+            $fileInfo.Metadata.Category,
+            $fileInfo.Metadata.ContentType,
+            $fileInfo.Metadata.Project,
+            $fileInfo.Metadata.Company,
+            $fileInfo.Metadata.Program
+        ) | Where-Object { ![string]::IsNullOrWhiteSpace($_) }
+        
+        if ($categoryContent.Count -gt 0) {
+            $categoryText = $categoryContent -join " "
+            foreach ($category in $categoryKeywords.Keys) {
+                $patterns = $categoryKeywords[$category].Include
+                foreach ($pattern in $patterns) {
+                    if (Test-ContentMatch -content $categoryText -includePatterns @($pattern) -excludePatterns $categoryKeywords[$category].Exclude) {
+                        $fileInfo.AddCategoryDetection($category, "Metadata (Category)", $pattern)
+                    }
+                }
+            }
+        }
+        
+        $generalContent = @(
+            $fileInfo.Metadata.Keywords,
+            $fileInfo.Metadata.Subject,
+            $fileInfo.Metadata.Title,
+            $fileInfo.Metadata.Comments,
+            $fileInfo.Metadata.Tags,
+            $fileInfo.Metadata.FileDescription
+        ) | Where-Object { ![string]::IsNullOrWhiteSpace($_) }
+        
+        if ($generalContent.Count -gt 0) {
+            $metaText = $generalContent -join " "
+            foreach ($category in $categoryKeywords.Keys) {
+                $patterns = $categoryKeywords[$category].Include
+                foreach ($pattern in $patterns) {
+                    if (Test-ContentMatch -content $metaText -includePatterns @($pattern) -excludePatterns $categoryKeywords[$category].Exclude) {
+                        $fileInfo.AddCategoryDetection($category, "Metadata (General)", $pattern)
+                    }
+                }
+            }
+        }
+    }
+    
+    # Check filename
+    $fileName = Split-Path $fileInfo.SourcePath -Leaf
+    foreach ($category in $categoryKeywords.Keys) {
+        $patterns = $categoryKeywords[$category].Include
+        foreach ($pattern in $patterns) {
+            if (Test-ContentMatch -content $fileName -includePatterns @($pattern) -excludePatterns $categoryKeywords[$category].Exclude) {
+                $fileInfo.AddCategoryDetection($category, "Filename", $pattern)
+            }
+        }
+    }
+    
+    # Check content
+    if ($content) {
+        foreach ($category in $categoryKeywords.Keys) {
+            $patterns = $categoryKeywords[$category].Include
+            foreach ($pattern in $patterns) {
+                if (Test-ContentMatch -content $content -includePatterns @($pattern) -excludePatterns $categoryKeywords[$category].Exclude) {
+                    $fileInfo.AddCategoryDetection($category, "Content", $pattern)
+                }
+            }
+        }
+    }
+    
+    return $fileInfo.DetectedCategories
+}
+
+function Get-UserSelection {
+    param(
+        [string]$prompt,
+        [hashtable]$detections,
+        [string]$default
+    )
+    
+    if ($detections.Count -eq 0) { return $default }
+    if ($detections.Count -eq 1) { return $detections.Keys | Select-Object -First 1 }
+    
+    Write-Host "`n$prompt" -ForegroundColor Yellow
+    
+    $i = 1
+    $options = @()
+    Write-Host "Matches found:" -ForegroundColor Cyan
+    foreach ($key in $detections.Keys | Sort-Object) {
+        $detection = $detections[$key]
+        $options += $key
+        
+        $sources = ($detection.Sources | Select-Object -Unique) -join ', '
+        $patterns = ($detection.MatchedPatterns | Select-Object -Unique) -join ', '
+        Write-Host "$i`: $($detection.Value) | Sources: [$sources] Matches: [$patterns]" -ForegroundColor Gray
+        $i++
+    }
+    
+    Write-Host "D: Default ($default)" -ForegroundColor DarkGray
+    
+    do {
+        $response = Read-Host "> "
+        if ($response -eq "D") { return $default }
+        if ($response -match '^\d+$') {
+            $index = [int]$response - 1
+            if ($index -ge 0 -and $index -lt $options.Count) {
+                return $options[$index]
+            }
+        }
+    } while ($true)
 }
 
 # Initialize counters
@@ -494,5 +724,14 @@ foreach ($member in $fileCount.Documents.ByFamily.Keys | Sort-Object) {
         Write-Host "  - $category`: $($script:fileCount.Documents.ByFamily[$member][$category])" -ForegroundColor Yellow
     }
 }
+
+$jsonPath = Join-Path $PSScriptRoot "..\output\file-organization-results.json"
+$jsonDir = Split-Path $jsonPath -Parent
+if (!(Test-Path $jsonDir)) {
+    New-Item -ItemType Directory -Path $jsonDir -Force | Out-Null
+}
+
+$fileCollection | ConvertTo-Json -Depth 10 | Set-Content $jsonPath
+Write-Host "`nFile organization details exported to: $jsonPath" -ForegroundColor Blue
 
 Write-Host "`nFile organization complete!" -ForegroundColor Blue
