@@ -11,7 +11,7 @@
             ".mp4", ".avi", ".mov", ".wmv", ".flv", ".mkv", ".bup", ".iso", ".ifo", ".vob", ".miniso"
         ],
         "documents": [
-            ".txt", ".doc", ".docx", ".pdf", ".xls", ".xlsx", ".ppt", ".pptx", ".accdb", ".ldf", ".mdf", ".xml", ".one", ".csv", ".htm", ".log", ".msg", ".tax2018", ".rtf", ".mdb", ".gdoc", ".xlsm", ".pps", ".gform"
+            ".txt", ".doc", ".docx", ".pdf", ".xls", ".xlsx", ".ppt", ".pptx", ".accdb", ".ldf", ".mdf", ".xml", ".one", ".csv", ".htm", ".log", ".msg", ".tax2018", ".rtf", ".mdb", ".gdoc", ".xlsm", ".pps", ".gform",".gmap"
         ]
     },
     "categories": {
