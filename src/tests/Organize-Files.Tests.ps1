@@ -2,16 +2,14 @@ BeforeAll {
     # Import the script
     . $PSScriptRoot/../scripts/Organize-Files.ps1
     
-    # Create test directories
-    $script:testRoot = Join-Path $TestDrive "TestFileOrganization"
-    $script:sourceDir = Join-Path $testRoot "Source"
-    $script:targetDir = Join-Path $testRoot "Target"
+    # Create test directories in TestDrive
+    $script:sourceDir = Join-Path $TestDrive "Source"
+    $script:targetDir = Join-Path $TestDrive "Target"
     
-    # Create test directories
     New-Item -ItemType Directory -Path $sourceDir -Force
     New-Item -ItemType Directory -Path $targetDir -Force
     
-    # Helper function to create test files
+    # Helper function to create test files in TestDrive
     function New-TestFile {
         param(
             [string]$Path,
@@ -19,7 +17,13 @@ BeforeAll {
             [hashtable]$Metadata = @{}
         )
         
-        Set-Content -Path $Path -Value $Content
+        # Ensure parent directory exists
+        $parentDir = Split-Path $Path -Parent
+        if (!(Test-Path $parentDir)) {
+            New-Item -ItemType Directory -Path $parentDir -Force
+        }
+        
+        Set-Content -Path $Path -Value $Content -Force
         
         # Mock metadata for the file
         Mock Get-FileMetadata -ParameterFilter { $path -eq $Path } -MockWith { $Metadata }
@@ -28,17 +32,19 @@ BeforeAll {
 
 Describe "File Organization Tests" {
     BeforeEach {
-        # Clear test directories before each test
-        Get-ChildItem -Path $sourceDir -Recurse | Remove-Item -Force -Recurse
-        Get-ChildItem -Path $targetDir -Recurse | Remove-Item -Force -Recurse
+        # Clear test directories
+        Get-ChildItem -Path $sourceDir -Recurse -ErrorAction SilentlyContinue | Remove-Item -Force -Recurse
+        Get-ChildItem -Path $targetDir -Recurse -ErrorAction SilentlyContinue | Remove-Item -Force -Recurse
         
-        # Reset file collection
+        # Recreate root directories
+        New-Item -ItemType Directory -Path $sourceDir -Force
+        New-Item -ItemType Directory -Path $targetDir -Force
+        
+        # Reset collections and counters
         $script:fileCollection = @()
-        
-        # Reset counters
         $script:fileCount = @{
             Development = @{ Projects = 0; Standalone = 0 }
-            Media = @{ Images = 0; Videos = 0 }
+            Media = @{ Pictures = 0; Videos = 0 }
             Documents = @{ ByFamily = @{} }
             Unknown = 0
         }
@@ -93,9 +99,9 @@ Describe "File Organization Tests" {
         It "Classifies documents with metadata correctly" {
             $testFile = Join-Path $sourceDir "test.docx"
             $metadata = @{
-                Author = "Michael Smith"
-                Title = "Work Report"
-                Category = "Reports"
+                Author = "Michael"
+                Title = "My Resume"
+                Category = "Work"
             }
             New-TestFile -Path $testFile -Metadata $metadata
             
@@ -118,7 +124,7 @@ Describe "File Organization Tests" {
             New-TestFile -Path $psFile -Content "Write-Host 'Test'"
             New-TestFile -Path $imageFile
             New-TestFile -Path $docFile -Metadata @{
-                Author = "Michael Smith"
+                Author = "Michael"
                 Title = "Test Document"
             }
             New-TestFile -Path $unknownFile
@@ -145,7 +151,7 @@ Describe "File Organization Tests" {
     Context "Family Member Detection" {
         It "Detects family members from metadata" {
             $fileInfo = [FileOrganizationInfo]::new("test.docx", $false)
-            $content = "Test content"
+            $content = "Michael"
             
             Get-AllPossibleFamilyMembers -fileInfo $fileInfo -content $content
             
@@ -156,7 +162,7 @@ Describe "File Organization Tests" {
     Context "Category Detection" {
         It "Detects categories from metadata" {
             $fileInfo = [FileOrganizationInfo]::new("test.docx", $false)
-            $content = "Test content"
+            $content = "Soccer"
             
             Get-AllPossibleCategories -fileInfo $fileInfo -content $content
             
@@ -326,6 +332,56 @@ Describe "File Organization Tests" {
             $originalHash.Hash | Should -Be $duplicateHash.Hash
         }
     }
+    
+    Context "Multi-tier Category Detection" {
+        It "Identifies finance bills correctly" {
+            $testFile = Join-Path $sourceDir "electricity_bill.pdf"
+            $metadata = @{
+                Title = "Electric Bill"
+                Subject = "Monthly Utility Bill"
+            }
+            New-TestFile -Path $testFile -Metadata $metadata
+            
+            Initialize-FileInfo -path $testFile -isDirectory $false
+            
+            $fileCollection[0].Category | Should -Be "Documents"
+            $fileCollection[0].SubCategory | Should -Be "Finances"
+            $fileCollection[0].TertiaryCategory | Should -Be "Bills"
+            $fileCollection[0].TargetPath | Should -Match "Documents\\Personal\\01 - Family\\Finances\\Bills"
+        }
+        
+        It "Identifies tax documents correctly" {
+            $testFile = Join-Path $sourceDir "tax_return_2023.pdf"
+            $metadata = @{
+                Title = "Tax Return 2023"
+                Subject = "Annual Tax Filing"
+            }
+            New-TestFile -Path $testFile -Metadata $metadata
+            
+            Initialize-FileInfo -path $testFile -isDirectory $false
+            
+            $fileCollection[0].Category | Should -Be "Documents"
+            $fileCollection[0].SubCategory | Should -Be "Finances"
+            $fileCollection[0].TertiaryCategory | Should -Be "Taxes"
+            $fileCollection[0].TargetPath | Should -Match "Documents\\Personal\\01 - Family\\Finances\\Taxes"
+        }
+        
+        It "Uses parent category when subcategory is not detected" {
+            $testFile = Join-Path $sourceDir "financial_summary.pdf"
+            $metadata = @{
+                Title = "Financial Summary"
+                Subject = "General Financial Overview"
+            }
+            New-TestFile -Path $testFile -Metadata $metadata
+            
+            Initialize-FileInfo -path $testFile -isDirectory $false
+            
+            $fileCollection[0].Category | Should -Be "Documents"
+            $fileCollection[0].SubCategory | Should -Be "Finances"
+            $fileCollection[0].TertiaryCategory | Should -BeNullOrEmpty
+            $fileCollection[0].TargetPath | Should -Match "Documents\\Personal\\01 - Family\\Finances"
+        }
+    }
 }
 
 Describe "Utility Function Tests" {
@@ -335,7 +391,7 @@ Describe "Utility Function Tests" {
             Convert-WildcardToRegex -pattern "*test*" | Should -Be "[\s\w-]+test[\s\w-]+"
         }
     }
-    
+
     Context "Test-ContentMatch" {
         It "Matches content correctly" {
             $result = Test-ContentMatch -content "test123" -includePatterns @("test*") -excludePatterns @()

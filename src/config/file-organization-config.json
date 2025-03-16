@@ -36,11 +36,29 @@
                         "grand*theft*auto", "pokemon", "7th*saga", "secret*of*mana", "poke", "legend*of*dragoon","super*mario","tales*phantasia"],
             "exclude": []
         },
-        "Taxes": {
-            "include": ["taxes","tax*return", "turbotax","taxreturn"],
-            "exclude": []
+        "Finances": {
+            "include": ["finance", "financial", "money", "bank", "banking", "income", "expense"],
+            "exclude": [],
+            "subcategories": {
+                "Bills": {
+                    "include": ["bill", "invoice", "payment", "receipt", "utilities", "utility", "electric", "gas", "water", "internet", "phone", "cable", "mortgage", "rent"],
+                    "exclude": []
+                },
+                "Taxes": {
+                    "include": ["taxes", "tax*return", "turbotax", "taxreturn", "irs", "1099", "w-2", "w2"],
+                    "exclude": []
+                },
+                "Investments": {
+                    "include": ["investment", "stock", "bond", "mutual*fund", "retirement", "401k", "ira", "roth"],
+                    "exclude": []
+                },
+                "Insurance": {
+                    "include": ["insurance", "policy", "coverage", "claim", "premium", "deductible", "health*insurance", "life*insurance", "auto*insurance"],
+                    "exclude": []
+                }
+            }
         }
-},
+    },
     "familyMembers": {
         "02 - Michael": {
             "include": ["michael", "mike", "mpalmer", "beastmp"],

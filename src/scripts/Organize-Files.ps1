@@ -10,6 +10,7 @@ class FileOrganizationInfo {
     [string]$TargetPath
     [string]$Category
     [string]$SubCategory
+    [string]$TertiaryCategory
     [string]$FamilyMember
     [bool]$IsDirectory
     [string]$FileType
@@ -18,6 +19,7 @@ class FileOrganizationInfo {
     [bool]$ProcessedAsProject  # Add new flag
     [hashtable]$DetectedFamilyMembers  # Changed from string[] to hashtable
     [hashtable]$DetectedCategories  # Changed from string[] to hashtable
+    [hashtable]$DetectedSubCategories  # New property for tier-2 categories
     [hashtable]$Metadata
     [bool]$UserSelected
     
@@ -263,6 +265,11 @@ function Get-DocumentCategory {
         [hashtable]$metadata = $null
     )
     
+    $result = @{
+        Category = "General"
+        SubCategory = $null
+    }
+    
     # Check metadata first
     if ($metadata) {
         # Combine all relevant metadata fields with priority on category-specific fields
@@ -277,14 +284,37 @@ function Get-DocumentCategory {
         # Check category-specific fields first
         if ($categoryContent.Count -gt 0) {
             $categoryText = $categoryContent -join " "
+            # First check if any top-level category with subcategories matches
             foreach ($category in $categoryKeywords.Keys) {
-                if (Test-ContentMatch -content $categoryText -includePatterns $categoryKeywords[$category].Include -excludePatterns $categoryKeywords[$category].Exclude) {
-                    return $category
+                if ($categoryKeywords[$category].PSObject.Properties.Name -contains "subcategories") {
+                    if (Test-ContentMatch -content $categoryText -includePatterns $categoryKeywords[$category].Include -excludePatterns $categoryKeywords[$category].Exclude) {
+                        $result.Category = $category
+                        # Now check subcategories
+                        foreach ($subCategory in $categoryKeywords[$category].subcategories.PSObject.Properties.Name) {
+                            if (Test-ContentMatch -content $categoryText `
+                                -includePatterns $categoryKeywords[$category].subcategories.$subCategory.Include `
+                                -excludePatterns $categoryKeywords[$category].subcategories.$subCategory.Exclude) {
+                                $result.SubCategory = $subCategory
+                                return $result
+                            }
+                        }
+                        # If no subcategory matched, just return the parent category
+                        return $result
+                    }
+                }
+            }
+            
+            # Then check regular categories
+            foreach ($category in $categoryKeywords.Keys) {
+                if (!($categoryKeywords[$category].PSObject.Properties.Name -contains "subcategories") -and 
+                    (Test-ContentMatch -content $categoryText -includePatterns $categoryKeywords[$category].Include -excludePatterns $categoryKeywords[$category].Exclude)) {
+                    $result.Category = $category
+                    return $result
                 }
             }
         }
         
-        # Then check other metadata fields
+        # Check other metadata fields
         $generalContent = @(
             $metadata.Keywords,
             $metadata.Subject,
@@ -298,24 +328,76 @@ function Get-DocumentCategory {
             $metaText = $generalContent -join " "
             foreach ($category in $categoryKeywords.Keys) {
                 if (Test-ContentMatch -content $metaText -includePatterns $categoryKeywords[$category].Include -excludePatterns $categoryKeywords[$category].Exclude) {
-                    return $category
+                    $result.Category = $category
+                    return $result
                 }
             }
         }
     }
     
-    # Then check filename and content as before
+    # Check filename and content
+    # First, check for categories with subcategories
     foreach ($category in $categoryKeywords.Keys) {
-        if (Test-ContentMatch -content $fileName -includePatterns $categoryKeywords[$category].Include -excludePatterns $categoryKeywords[$category].Exclude) {return $category}
-    }
-    if ($content) {
-        foreach ($category in $categoryKeywords.Keys) {
-            if (Test-ContentMatch -content $content -includePatterns $categoryKeywords[$category].Include -excludePatterns $categoryKeywords[$category].Exclude) {
-                return $category
+        if ($categoryKeywords[$category].PSObject.Properties.Name -contains "subcategories") {
+            if (Test-ContentMatch -content $fileName -includePatterns $categoryKeywords[$category].Include -excludePatterns $categoryKeywords[$category].Exclude) {
+                $result.Category = $category
+                # Now check subcategories
+                foreach ($subCategory in $categoryKeywords[$category].subcategories.PSObject.Properties.Name) {
+                    if (Test-ContentMatch -content $fileName `
+                        -includePatterns $categoryKeywords[$category].subcategories.$subCategory.Include `
+                        -excludePatterns $categoryKeywords[$category].subcategories.$subCategory.Exclude) {
+                        $result.SubCategory = $subCategory
+                        return $result
+                    }
+                }
+                # If no subcategory matched, just return the parent category
+                return $result
             }
         }
     }
-    return "General"
+    
+    # Then check regular categories
+    foreach ($category in $categoryKeywords.Keys) {
+        if (!($categoryKeywords[$category].PSObject.Properties.Name -contains "subcategories") -and 
+            (Test-ContentMatch -content $fileName -includePatterns $categoryKeywords[$category].Include -excludePatterns $categoryKeywords[$category].Exclude)) {
+            $result.Category = $category
+            return $result
+        }
+    }
+    
+    # Check content if provided
+    if ($content) {
+        # First, check for categories with subcategories
+        foreach ($category in $categoryKeywords.Keys) {
+            if ($categoryKeywords[$category].PSObject.Properties.Name -contains "subcategories") {
+                if (Test-ContentMatch -content $content -includePatterns $categoryKeywords[$category].Include -excludePatterns $categoryKeywords[$category].Exclude) {
+                    $result.Category = $category
+                    # Now check subcategories
+                    foreach ($subCategory in $categoryKeywords[$category].subcategories.PSObject.Properties.Name) {
+                        if (Test-ContentMatch -content $content `
+                            -includePatterns $categoryKeywords[$category].subcategories.$subCategory.Include `
+                            -excludePatterns $categoryKeywords[$category].subcategories.$subCategory.Exclude) {
+                            $result.SubCategory = $subCategory
+                            return $result
+                        }
+                    }
+                    # If no subcategory matched, just return the parent category
+                    return $result
+                }
+            }
+        }
+        
+        # Then check regular categories
+        foreach ($category in $categoryKeywords.Keys) {
+            if (!($categoryKeywords[$category].PSObject.Properties.Name -contains "subcategories") -and 
+                (Test-ContentMatch -content $content -includePatterns $categoryKeywords[$category].Include -excludePatterns $categoryKeywords[$category].Exclude)) {
+                $result.Category = $category
+                return $result
+            }
+        }
+    }
+    
+    return $result
 }
 
 function Add-ToFileCollection {
@@ -323,6 +405,7 @@ function Add-ToFileCollection {
         [FileOrganizationInfo]$fileInfo,
         [string]$category,
         [string]$subCategory = "",
+        [string]$tertiaryCategory = "",
         [string]$familyMember = "",
         [string]$targetPath = "",
         [string]$colorCode = 'White'
@@ -330,6 +413,7 @@ function Add-ToFileCollection {
     
     $fileInfo.Category = $category
     $fileInfo.SubCategory = $subCategory
+    $fileInfo.TertiaryCategory = $tertiaryCategory
     $fileInfo.FamilyMember = $familyMember
     $fileInfo.TargetPath = $targetPath
     $fileInfo.ColorCode = $colorCode
@@ -425,19 +509,19 @@ function Initialize-FileInfo {
             "01 - Family"
         }
         
-        $category = if ($previousResult) {
-            # Update to safely copy the hashtables
-            $fileInfo.DetectedCategories = $previousResult.DetectedCategories.Clone()
-            $previousResult.SubCategory
-        } elseif ($fileInfo.DetectedCategories.Count -gt 0) {
-            $fileInfo.UserSelected = $true
-            Get-UserSelection -prompt "Select category for $fileName" -detections $fileInfo.DetectedCategories -default "General"
+        $categoryResult = Get-DocumentCategory -fileName $fileName -content $content -metadata $metadata
+        $category = $categoryResult.Category
+        $subCategory = $categoryResult.SubCategory
+        
+        # Determine path structure based on whether we have a subcategory
+        $categoryPath = if ($subCategory) {
+            "$category\$subCategory"
         } else {
-            "General"
+            $category
         }
         
-        $targetPath = Join-Path $TargetDirectory "Documents\Personal\${familyMember}\${category}\${fileName}"
-        Add-ToFileCollection -fileInfo $fileInfo -category "Documents" -subCategory $category -familyMember $familyMember -targetPath $targetPath -colorCode 'Yellow'
+        $targetPath = Join-Path $TargetDirectory "Documents\Personal\${familyMember}\${categoryPath}\${fileName}"
+        Add-ToFileCollection -fileInfo $fileInfo -category "Documents" -subCategory $category -tertiaryCategory $subCategory -familyMember $familyMember -targetPath $targetPath -colorCode 'Yellow'
     }
     else {
         $targetPath = Join-Path $TargetDirectory "Documents\Personal\Unknown\$(Split-Path $path -Leaf)"
@@ -536,6 +620,19 @@ function Get-AllPossibleCategories {
                 foreach ($pattern in $patterns) {
                     if (Test-ContentMatch -content $categoryText -includePatterns @($pattern) -excludePatterns $categoryKeywords[$category].Exclude) {
                         $fileInfo.AddCategoryDetection($category, "Metadata (Category)", $pattern)
+                        
+                        # Also check subcategories
+                        if ($categoryKeywords[$category].PSObject.Properties.Name -contains "subcategories") {
+                            foreach ($subCategory in $categoryKeywords[$category].subcategories.PSObject.Properties.Name) {
+                                $subPatterns = $categoryKeywords[$category].subcategories.$subCategory.Include
+                                foreach ($subPattern in $subPatterns) {
+                                    if (Test-ContentMatch -content $categoryText -includePatterns @($subPattern) `
+                                        -excludePatterns $categoryKeywords[$category].subcategories.$subCategory.Exclude) {
+                                        $fileInfo.AddCategoryDetection("$category/$subCategory", "Metadata (Category)", $subPattern)
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -557,6 +654,19 @@ function Get-AllPossibleCategories {
                 foreach ($pattern in $patterns) {
                     if (Test-ContentMatch -content $metaText -includePatterns @($pattern) -excludePatterns $categoryKeywords[$category].Exclude) {
                         $fileInfo.AddCategoryDetection($category, "Metadata (General)", $pattern)
+                        
+                        # Also check subcategories
+                        if ($categoryKeywords[$category].PSObject.Properties.Name -contains "subcategories") {
+                            foreach ($subCategory in $categoryKeywords[$category].subcategories.PSObject.Properties.Name) {
+                                $subPatterns = $categoryKeywords[$category].subcategories.$subCategory.Include
+                                foreach ($subPattern in $subPatterns) {
+                                    if (Test-ContentMatch -content $metaText -includePatterns @($subPattern) `
+                                        -excludePatterns $categoryKeywords[$category].subcategories.$subCategory.Exclude) {
+                                        $fileInfo.AddCategoryDetection("$category/$subCategory", "Metadata (General)", $subPattern)
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -570,6 +680,19 @@ function Get-AllPossibleCategories {
         foreach ($pattern in $patterns) {
             if (Test-ContentMatch -content $fileName -includePatterns @($pattern) -excludePatterns $categoryKeywords[$category].Exclude) {
                 $fileInfo.AddCategoryDetection($category, "Filename", $pattern)
+                
+                # Also check subcategories
+                if ($categoryKeywords[$category].PSObject.Properties.Name -contains "subcategories") {
+                    foreach ($subCategory in $categoryKeywords[$category].subcategories.PSObject.Properties.Name) {
+                        $subPatterns = $categoryKeywords[$category].subcategories.$subCategory.Include
+                        foreach ($subPattern in $subPatterns) {
+                            if (Test-ContentMatch -content $fileName -includePatterns @($subPattern) `
+                                -excludePatterns $categoryKeywords[$category].subcategories.$subCategory.Exclude) {
+                                $fileInfo.AddCategoryDetection("$category/$subCategory", "Filename", $subPattern)
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -581,6 +704,19 @@ function Get-AllPossibleCategories {
             foreach ($pattern in $patterns) {
                 if (Test-ContentMatch -content $content -includePatterns @($pattern) -excludePatterns $categoryKeywords[$category].Exclude) {
                     $fileInfo.AddCategoryDetection($category, "Content", $pattern)
+                    
+                    # Also check subcategories
+                    if ($categoryKeywords[$category].PSObject.Properties.Name -contains "subcategories") {
+                        foreach ($subCategory in $categoryKeywords[$category].subcategories.PSObject.Properties.Name) {
+                            $subPatterns = $categoryKeywords[$category].subcategories.$subCategory.Include
+                            foreach ($subPattern in $subPatterns) {
+                                if (Test-ContentMatch -content $content -includePatterns @($subPattern) `
+                                    -excludePatterns $categoryKeywords[$category].subcategories.$subCategory.Exclude) {
+                                    $fileInfo.AddCategoryDetection("$category/$subCategory", "Content", $subPattern)
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -635,7 +771,10 @@ function Get-UserSelection {
 $script:fileCount = @{
     Development = @{ Projects = 0; Standalone = 0 }
     Media = @{ Pictures = 0; Videos = 0 }  # Changed Images to Pictures
-    Documents = @{ ByFamily = @{} }
+    Documents = @{ 
+        ByFamily = @{}
+        MultiTier = @{}  # Add tracking for multi-tier categories
+    }
     Unknown = 0
 }
 
@@ -651,7 +790,7 @@ $documentExtensions = $config.extensions.documents
 
 # Convert categories to hashtable
 $categoryKeywords = @{}
-$config.categories.PSObject.Properties | ForEach-Object {$categoryKeywords[$_.Name] = @{Include = $_.Value.include;Exclude = $_.Value.exclude}}
+$config.categories.PSObject.Properties | ForEach-Object {$categoryKeywords[$_.Name] = @{Include = $_.Value.include;Exclude = $_.Value.exclude;subcategories = $_.Value.subcategories}}
 
 # Convert family members to hashtable
 $familyKeywords = @{}
@@ -793,6 +932,12 @@ $script:fileCollection | Where-Object { !$_.ProcessedAsProject } | ForEach-Objec
         
         # Display move message with appropriate color if verbose flag is set
         if ($VerbosePreference -eq 'Continue') {
+            # For multi-tier categories, show the full path
+            $categoryDisplayInfo = if ($_.TertiaryCategory) {
+                "$($_.SubCategory)/$($_.TertiaryCategory)"
+            } else {
+                $_.SubCategory
+            }
             Write-Host "Moved $($_.Category.ToLower()) file [$fileName] to $($_.TargetPath)" -ForegroundColor $_.ColorCode
         }
     }
