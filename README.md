@@ -6,6 +6,40 @@ A PowerShell-based file organization system that intelligently sorts and categor
 
 This system helps organize personal and family files into a structured directory system, with special handling for development projects, media files, and duplicate detection.
 
+## Development destination
+
+Development projects and standalone code files go to **one** configured root, set in
+[`src/config/file-organization-config.json`](src/config/file-organization-config.json):
+
+```json
+"development": {
+    "root": "C:\\Users\\Public\\Claude\\workspace",
+    "projectsSubPath": "",
+    "standaloneSubPath": "_standalone",
+    "stripFamilyMemberPrefix": true,
+    "skipRoots": [
+        "Documents\\Personal\\Development",
+        "Documents\\Personal\\02 - Michael\\Development"
+    ]
+}
+```
+
+| Key | Meaning |
+|---|---|
+| `root` | Where all development content lands. Absolute paths are used as-is; relative ones resolve against `-TargetDirectory`. |
+| `projectsSubPath` | Sub-path under `root` for detected projects. Empty means projects sit directly in `root`. |
+| `standaloneSubPath` | Sub-path for loose code files, then grouped by language (`_standalone/PowerShell/…`). |
+| `stripFamilyMemberPrefix` | Drops leading `<FamilyMember>` / `Development` segments so a project found at `02 - Michael\Development\MyApp` lands at `root\MyApp`, not `root\02 - Michael\Development\MyApp`. |
+| `skipRoots` | Additional existing development roots to leave untouched on re-scan. |
+
+**Why this exists.** The destination used to be hardcoded to `Documents\Personal\Development`
+in three places, while the source tree also contained
+`Documents\Personal\<FamilyMember>\Development`. The skip check only knew about the first,
+so a run left **both** trees behind. Every development root — the canonical one plus each
+entry in `skipRoots` — is now skipped on re-scan, which also makes repeated runs idempotent.
+
+`Revert-FileOrganization.ps1` reads the same config, so reverting follows `root` wherever it points.
+
 ## Prerequisites
 
 - PowerShell 5.1 or higher

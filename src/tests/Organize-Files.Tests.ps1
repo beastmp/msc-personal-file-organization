@@ -73,6 +73,54 @@ Describe "File Organization Tests" {
         }
     }
     
+    Context "Single Development Root (regression: dual-Development schema)" {
+        It "Routes a project found under a family member to the canonical root" {
+            # The old code hardcoded "Documents\Personal\Development" while the source
+            # also held "Documents\Personal\<FamilyMember>\Development", so a run left
+            # BOTH trees behind. A project nested under a family member must now land
+            # in the one configured root.
+            $projectDir = Join-Path $sourceDir "02 - Michael\Development\NestedProject"
+            New-Item -ItemType Directory -Path $projectDir -Force
+            New-TestFile -Path (Join-Path $projectDir ".gitignore")
+
+            Initialize-FileInfo -path $projectDir -isDirectory $true
+
+            $target = $script:fileCollection[0].TargetPath
+            $target | Should -BeLike "$script:developmentProjectsRoot\*"
+            $target | Should -Not -BeLike "*02 - Michael*"
+            $target | Should -BeLike "*NestedProject*"
+        }
+
+        It "Strips the family member and Development segments from the relative path" {
+            $projectDir = Join-Path $sourceDir "02 - Michael\Development\MyApp"
+            New-Item -ItemType Directory -Path $projectDir -Force
+
+            Get-DevelopmentRelativePath -path $projectDir | Should -Be "MyApp"
+        }
+
+        It "Skips paths already under a legacy development root" {
+            $legacyRoot = $script:developmentSkipRoots |
+                Where-Object { $_ -notlike "$script:developmentRoot*" } |
+                Select-Object -First 1
+            $legacyRoot | Should -Not -BeNullOrEmpty
+
+            Test-IsUnderDevelopmentRoot -path (Join-Path $legacyRoot "SomeProject") | Should -BeTrue
+        }
+
+        It "Skips paths already under the canonical development root" {
+            Test-IsUnderDevelopmentRoot -path (Join-Path $script:developmentRoot "AlreadyOrganized") | Should -BeTrue
+        }
+
+        It "Does not skip ordinary document paths" {
+            Test-IsUnderDevelopmentRoot -path (Join-Path $sourceDir "notes.docx") | Should -BeFalse
+        }
+
+        It "Treats an absolute configured root as-is and a relative one as target-relative" {
+            Resolve-ConfiguredPath -Path "C:\Some\Absolute" -BaseDirectory $targetDir | Should -Be "C:\Some\Absolute"
+            Resolve-ConfiguredPath -Path "Rel\Sub" -BaseDirectory $targetDir | Should -Be (Join-Path $targetDir "Rel\Sub")
+        }
+    }
+
     Context "Media File Detection" {
         It "Identifies image files correctly" {
             $testFile = Join-Path $sourceDir "test.jpg"
@@ -137,11 +185,20 @@ Describe "File Organization Tests" {
                 Initialize-FileInfo -path $_.FullName -isDirectory $false
             }
             
-            # Verify expected paths
-            $script:fileCollection[0].TargetPath | Should -Match "Documents\\Personal\\Development\\Standalone\\PowerShell"
-            $script:fileCollection[1].TargetPath | Should -Match "Media\\Pictures"  # Changed from Images
-            $script:fileCollection[2].TargetPath | Should -Match "Documents\\Personal\\02 - Michael"
-            $script:fileCollection[3].TargetPath | Should -Match "Documents\\Personal\\Unknown"
+            # Select by category rather than by index: Get-ChildItem returns files in
+            # name order (test.docx before test.ps1), so positional assertions were
+            # checking the wrong entries.
+            $devFile = $script:fileCollection | Where-Object { $_.Category -eq "Development" } | Select-Object -First 1
+            $mediaFile = $script:fileCollection | Where-Object { $_.Category -eq "Media" } | Select-Object -First 1
+            $docFile = $script:fileCollection | Where-Object { $_.Category -eq "Documents" } | Select-Object -First 1
+            $unknown = $script:fileCollection | Where-Object { $_.Category -eq "Unknown" } | Select-Object -First 1
+
+            # Assert against the configured root rather than a hardcoded path, so the
+            # test follows development.root instead of pinning the old location.
+            $devFile.TargetPath | Should -BeLike "$script:developmentStandaloneRoot\PowerShell\*"
+            $mediaFile.TargetPath | Should -Match "Media\\Pictures"
+            $docFile.TargetPath | Should -Match "Documents\\Personal\\02 - Michael"
+            $unknown.TargetPath | Should -Match "Documents\\Personal\\Unknown"
             
             # Verify moves were called
             Should -Invoke Move-ItemSafe -Times 4

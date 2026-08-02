@@ -74,6 +74,84 @@ function Test-ContentMatch {param([string]$content,[string[]]$includePatterns,[s
     return $false
 }
 
+function Resolve-ConfiguredPath {
+    <#
+        Absolute paths are used as-is; relative ones resolve against the target
+        directory. Lets development.root point outside the organized tree (the
+        Claude workspace) without breaking the relative-path defaults.
+    #>
+    param([string]$Path,[string]$BaseDirectory)
+
+    if ([string]::IsNullOrWhiteSpace($Path)) { return $BaseDirectory }
+    if ([System.IO.Path]::IsPathRooted($Path)) { return $Path.TrimEnd('\') }
+    return (Join-Path $BaseDirectory $Path).TrimEnd('\')
+}
+
+function Join-PathIfSet {
+    param([string]$Base,[string]$Child)
+    if ([string]::IsNullOrWhiteSpace($Child)) { return $Base }
+    return (Join-Path $Base $Child)
+}
+
+function Test-IsUnderDevelopmentRoot {
+    <#
+        True when the path already sits under ANY development root — the canonical
+        one or a configured legacy root. Replaces the single hardcoded check that
+        let "<FamilyMember>\Development" through and produced a second tree.
+    #>
+    param([string]$path)
+
+    foreach ($root in $script:developmentSkipRoots) {
+        if ([string]::IsNullOrWhiteSpace($root)) { continue }
+        $normalizedRoot = $root.TrimEnd('\')
+        if ($path -eq $normalizedRoot -or $path.StartsWith($normalizedRoot + '\', [System.StringComparison]::OrdinalIgnoreCase)) {
+            return $true
+        }
+    }
+    return $false
+}
+
+function Get-DevelopmentRelativePath {
+    <#
+        Path of a project relative to the source root, with any leading
+        "<FamilyMember>" and "Development" segments removed, so a project found at
+        "02 - Michael\Development\Foo" lands at "<root>\Foo" rather than recreating
+        the nested layout under the new root.
+    #>
+    param([string]$path)
+
+    $relativePath = $path
+    if ($path.StartsWith($SourceDirectory, [System.StringComparison]::OrdinalIgnoreCase)) {
+        $relativePath = $path.Substring($SourceDirectory.Length)
+    }
+    $relativePath = $relativePath.Trim('\')
+
+    if ($script:developmentConfig.stripFamilyMemberPrefix) {
+        # Cut at the LAST family-member or "Development" segment and keep what follows.
+        # Anchoring on those markers rather than on the source prefix means a project is
+        # placed correctly even when the path was not rooted where we expected — the old
+        # code silently fell through and emitted an absolute path into the target.
+        $segments = @($relativePath.Split('\') | Where-Object { $_ -ne '' })
+        $cutIndex = -1
+        for ($i = 0; $i -lt $segments.Count - 1; $i++) {
+            if ($familyKeywords.ContainsKey($segments[$i]) -or $segments[$i] -eq 'Development') {
+                $cutIndex = $i
+            }
+        }
+        if ($cutIndex -ge 0) {
+            $segments = $segments[($cutIndex + 1)..($segments.Count - 1)]
+        }
+        $relativePath = $segments -join '\'
+    }
+
+    # Never let a rooted path through — Join-Path would produce "<root>\C:\...".
+    if ([System.IO.Path]::IsPathRooted($relativePath)) {
+        $relativePath = Split-Path $relativePath -Leaf
+    }
+
+    return $relativePath
+}
+
 function Test-IsDevelopmentProject {
     param([string]$path)
     
@@ -423,9 +501,8 @@ function Add-ToFileCollection {
 function Initialize-FileInfo {
     param([string]$path, [bool]$isDirectory)
     
-    # Skip only Development folder
-    $developmentFolder = Join-Path $TargetDirectory "Documents\Personal\Development"
-    if ($path.StartsWith($developmentFolder)) {
+    # Skip anything already under a development root (canonical or legacy).
+    if (Test-IsUnderDevelopmentRoot $path) {
         Write-Verbose "Skipping development folder: $path"
         return
     }
@@ -434,12 +511,8 @@ function Initialize-FileInfo {
     
     if ($isDirectory) {
         if (Test-IsDevelopmentProject $path) {
-            $relativePath = $path
-            if ($path.StartsWith($SourceDirectory)) {
-                $relativePath = $path.Substring($SourceDirectory.Length).TrimStart('\')
-            }
-            
-            $targetPath = Join-Path $TargetDirectory "Documents\Personal\Development\Projects\$relativePath"
+            $relativePath = Get-DevelopmentRelativePath $path
+            $targetPath = Join-Path $script:developmentProjectsRoot $relativePath
             Add-ToFileCollection -fileInfo $fileInfo -category "Development" -subCategory "Project" -targetPath $targetPath -colorCode 'Green'
             
             # Mark all files in this project
@@ -469,7 +542,7 @@ function Initialize-FileInfo {
             ".ts"  { "TypeScript" }
             default { "Other" }
         }
-        $targetPath = Join-Path $TargetDirectory "Documents\Personal\Development\Standalone\$fileType\$(Split-Path $path -Leaf)"
+        $targetPath = Join-Path $script:developmentStandaloneRoot "$fileType\$(Split-Path $path -Leaf)"
         Add-ToFileCollection -fileInfo $fileInfo -category "Development" -subCategory "Standalone" -targetPath $targetPath -colorCode 'Green'
     }
     elseif ($imageExtensions -contains $extension) {
@@ -787,6 +860,25 @@ $developmentExtensions = $config.extensions.development
 $imageExtensions = $config.extensions.images
 $videoExtensions = $config.extensions.videos
 $documentExtensions = $config.extensions.documents
+
+# --- Development destination (single canonical root) -------------------------
+# Previously "Documents\Personal\Development" was hardcoded in three places while
+# the source tree also held "Documents\Personal\<FamilyMember>\Development".
+# The skip check only knew about the first, so a run produced BOTH trees. The root
+# is now configured once and every dev root is skipped on re-scan.
+$script:developmentConfig = $config.development
+$script:developmentRoot = Resolve-ConfiguredPath -Path $script:developmentConfig.root -BaseDirectory $TargetDirectory
+$script:developmentProjectsRoot = Join-PathIfSet -Base $script:developmentRoot -Child $script:developmentConfig.projectsSubPath
+$script:developmentStandaloneRoot = Join-PathIfSet -Base $script:developmentRoot -Child $script:developmentConfig.standaloneSubPath
+
+# Every root that must never be re-organized: the canonical one plus any legacy roots.
+$script:developmentSkipRoots = @($script:developmentRoot)
+foreach ($skip in @($script:developmentConfig.skipRoots)) {
+    if (![string]::IsNullOrWhiteSpace($skip)) {
+        $script:developmentSkipRoots += (Resolve-ConfiguredPath -Path $skip -BaseDirectory $TargetDirectory)
+    }
+}
+$script:developmentSkipRoots = $script:developmentSkipRoots | Select-Object -Unique
 
 # Convert categories to hashtable
 $categoryKeywords = @{}
