@@ -89,11 +89,30 @@ function Move-FilesBack {
 # Main processing logic
 Write-Host "`nStarting file reversion...`n" -ForegroundColor Blue
 
-# Process Development folder with structure preservation
-$developmentPath = Join-Path $TargetDirectory "Development"
-if (Test-Path $developmentPath) {
-    Write-Host "Processing Development folder..." -ForegroundColor Green
-    Move-FilesBack $developmentPath -IsDevelopment
+# Resolve the development root from the SAME config Organize-Files.ps1 writes to.
+# It may live outside $TargetDirectory (the Claude workspace), so a hardcoded
+# "$TargetDirectory\Development" would silently revert nothing.
+$configPath = Join-Path $PSScriptRoot "..\config\file-organization-config.json"
+$developmentRoots = @()
+if (Test-Path $configPath) {
+    $config = Get-Content -Raw -Path $configPath | ConvertFrom-Json
+    foreach ($candidate in @($config.development.root) + @($config.development.skipRoots)) {
+        if ([string]::IsNullOrWhiteSpace($candidate)) { continue }
+        $resolved = if ([System.IO.Path]::IsPathRooted($candidate)) { $candidate.TrimEnd('\') }
+                    else { (Join-Path $TargetDirectory $candidate).TrimEnd('\') }
+        $developmentRoots += $resolved
+    }
+}
+else {
+    Write-Warning "Config not found at $configPath - falling back to '$TargetDirectory\Development'"
+    $developmentRoots += (Join-Path $TargetDirectory "Development")
+}
+
+foreach ($developmentPath in ($developmentRoots | Select-Object -Unique)) {
+    if (Test-Path $developmentPath) {
+        Write-Host "Processing Development folder: $developmentPath" -ForegroundColor Green
+        Move-FilesBack $developmentPath -IsDevelopment
+    }
 }
 
 # Process other folders normally

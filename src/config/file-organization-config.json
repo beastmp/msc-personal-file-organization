@@ -1,4 +1,15 @@
 {
+    "development": {
+        "_comment": "Single canonical destination for ALL development content. Dev projects now live in the Claude workspace, not under Documents\\Personal. 'root' may be absolute (used as-is) or relative (resolved against -TargetDirectory). Everything here is skipped on re-scan, so repeated runs are idempotent.",
+        "root": "C:\\Users\\Public\\Claude\\workspace",
+        "projectsSubPath": "",
+        "standaloneSubPath": "_standalone",
+        "stripFamilyMemberPrefix": true,
+        "skipRoots": [
+            "Documents\\Personal\\Development",
+            "Documents\\Personal\\02 - Michael\\Development"
+        ]
+    },
     "extensions": {
         "development": [
             ".sln", ".csproj", ".py", ".java", ".js", ".ts", ".html", ".css",
